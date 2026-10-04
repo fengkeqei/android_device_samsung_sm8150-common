@@ -1,0 +1,12 @@
+# Mount points for the Samsung-specific partitions live in the system-as-root
+# rootfs and are labeled by our file_contexts; init mounts the partitions onto
+# them early in boot.
+allow init dqmdbgblk_file:dir mounton;
+allow init efs_file:dir mounton;
+allow init keydata_data_file:dir mounton;
+allow init keyrefuge_data_file:dir mounton;
+allow init omr_file:dir mounton;
+allow init spu_file:dir mounton;
+
+# Mount points for the firmware partitions live in the vendor image
+allow init vendor_file:dir mounton;

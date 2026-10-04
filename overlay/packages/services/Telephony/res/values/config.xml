@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Round 71: point the telephony device-default IMS service at the open-source
+  ImsStack (packages/modules/ImsStack). ImsResolver only parses manifest
+  feature metadata for the device-default package; without this the ImsStack
+  is discovered with an empty feature set and never bound.
+-->
+<resources>
+    <string name="config_ims_mmtel_package" translatable="false">com.android.imsstack</string>
+</resources>

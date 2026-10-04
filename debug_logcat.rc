@@ -1,0 +1,12 @@
+# Early persistent logcat + hwcomposer diagnostic with linker trace.
+on post-fs-data
+    mkdir /data/misc/logd 0770 logd log
+    start logcatd
+    start capture_composer
+
+service capture_composer /system/bin/sh -c "LD_DEBUG=libs /vendor/bin/hw/android.hardware.graphics.composer@2.1-service 2>&1; echo C21_EXIT=\$?; LD_DEBUG=libs /vendor/bin/hw/android.hardware.graphics.composer@2.4-service 2>&1; echo C24_EXIT=\$?"
+    user root
+    group root
+    stdio_to_kmsg
+    setenv LD_DEBUG libs
+    oneshot

@@ -1,0 +1,7 @@
+# Enable the FOD (finger-on-display) touch area in the Samsung TSP driver.
+# Without this the touch controller never routes presses inside the sensor
+# area to the qbt2000 fingerprint sensor, so enrollment waits for finger
+# events that never arrive (Round 71; mirrors the reference tree's
+# init.udfps.rc gated behind TARGET_HAVE_FOD).
+on property:sys.boot_completed=1
+    write /sys/class/sec/tsp/cmd "fod_enable,1"

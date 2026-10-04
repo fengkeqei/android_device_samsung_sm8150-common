@@ -1,0 +1,12 @@
+# Samsung AIDL fingerprint wrapper (hardware/samsung/aidl/fingerprint).
+# It dlopens libbauthserver.so directly instead of talking to the stock HIDL
+# 2.1 service, and reads calibration data from /efs.
+allow hal_fingerprint_default efs_file:dir search;
+r_dir_file(hal_fingerprint_default, efs_file);
+
+# The service runs with group uhid (see its .rc) and the Samsung stack
+# may hand the sensor side-channel through /dev/uhid.
+allow hal_fingerprint_default uhid_device:chr_file rw_file_perms;
+
+# libbauthserver talks to the QSEE trustlets directly.
+allow hal_fingerprint_default tee_device:chr_file rw_file_perms;

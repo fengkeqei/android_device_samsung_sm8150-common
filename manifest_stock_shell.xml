@@ -1,0 +1,10 @@
+<!--
+    Input:
+        device/samsung/sm8150-common/manifest.xml
+-->
+<manifest version="9.0" type="device" target-level="6">
+    <sepolicy>
+        <version>202404</version>
+    </sepolicy>
+    <kernel target-level="5"/>
+</manifest>

@@ -1,0 +1,19 @@
+# wpa_supplicant_overlay.conf pmf=1 移除说明（2026-10-01）
+
+## 问题
+stock blob `vendor/etc/wifi/wpa_supplicant_overlay.conf` 含 `pmf=1`。
+在 bcmdhd FullMAC 驱动上，这使 supplicant 发出自相矛盾的 RSN Capabilities
+（MFPR=1 要求 PMF，但驱动能力位 MFPC=0 不支持），AP 端对该客户端进入
+保守调度：单流正常，多流/大流量时下行总吞吐被钉死在 ~30Mbps。
+（对照实测：pmf=1 时 8 并发 WAN 25-35Mbps；移除后 148-170Mbps。）
+
+## 处置
+- 已从 vendor blob 缓存中删除该行（本 patch 同步记录）。
+- 若将来重新执行 extract-utils，需要重新应用此删除，或把本说明转成
+  extract-utils 官方 patch 机制（device/samsung/sm8150-common/patches/）。
+
+## 相关
+- 运行设备已热修：/vendor/etc/wifi/wpa_supplicant_overlay.conf（备份在
+  设备 /data/local/tmp/wso.bak）。
+- 内核侧相关补丁：BUFFY_OPER_MODE_FIX（v2/v3b, boot-e2v32/33）与
+  BUFFY_APF_FIX（boot-e2v33），分别解决 OMN 跳变与 APF 反向语义丢包。

@@ -1,0 +1,9 @@
+# Temporary diagnostic: repeatedly log DRM device state to /dev/kmsg so it
+# survives the sec_log ring buffer and can be read from /proc/last_kmsg.
+# Answers the long-open question: does /dev/dri/card0 exist during a failed
+# LineageOS boot (msm_drm KMS bound) or not?
+on post-fs-data
+    exec - root root -- /system/bin/sh -c "echo DIAG-DRI: post-fs-data fired > /dev/kmsg 2>&1"
+
+on late_start
+    exec_background - root root -- /system/bin/sh -c "while true; do { echo DIAG-DRI-BEGIN; echo DIAG-DRI-CMD; cat /proc/cmdline; echo DIAG-DRI-LSDRI; ls -la /dev/dri; echo DIAG-DRI-END; } >> /dev/kmsg 2>&1; sleep 5; done"

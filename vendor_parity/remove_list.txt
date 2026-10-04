@@ -1,0 +1,5 @@
+/bin/hw/android.hardware.health@2.1-service-samsung
+/etc/init/android.hardware.health@2.1-service-samsung.rc
+/etc/vintf/manifest/android.hardware.health@2.1-samsung.xml
+/etc/init/samsung.software.media.c2@1.0-service.rc
+/etc/vintf/manifest/sec_c2_manifest_default.xml

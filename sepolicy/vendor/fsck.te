@@ -1,0 +1,7 @@
+# fsck runs on these partitions before they are mounted and needs raw access to
+# the block devices.
+allow fsck dqmdbg_block_device:blk_file rw_file_perms;
+allow fsck efs_block_device:blk_file rw_file_perms;
+allow fsck keydata_block_device:blk_file rw_file_perms;
+allow fsck keyrefuge_block_device:blk_file rw_file_perms;
+allow fsck sec_efs_block_device:blk_file rw_file_perms;

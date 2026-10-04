@@ -1,0 +1,25 @@
+# Debug helper: run the hwcomposer services with their output redirected to the
+# kernel log (stdio_to_kmsg), so that a silent "exited with status 1" can be
+# diagnosed from recovery via /proc/last_kmsg.
+#
+# Both candidates are exercised: the AOSP 2.1 passthrough service and the stock
+# QTI 2.4 service.
+on post-fs-data
+    start debug_composer_21
+    start debug_composer_24
+
+service debug_composer_21 /vendor/bin/hw/android.hardware.graphics.composer@2.1-service
+    class debug
+    user system
+    group graphics drmrpc
+    capabilities SYS_NICE
+    stdio_to_kmsg
+    oneshot
+
+service debug_composer_24 /vendor/bin/hw/android.hardware.graphics.composer@2.4-service
+    class debug
+    user system
+    group graphics drmrpc
+    capabilities SYS_NICE
+    stdio_to_kmsg
+    oneshot

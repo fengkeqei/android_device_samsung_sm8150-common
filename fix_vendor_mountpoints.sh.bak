@@ -1,0 +1,191 @@
+#!/usr/bin/env bash
+#
+# Add the firmware mount point directories to a built vendor image.
+#
+# The stock fstab mounts the apnhlos/modem/dsp partitions at
+# /vendor/firmware_mnt, /vendor/firmware-modem and /vendor/dsp. The vendor
+# partition is mounted read-only, so those directories have to exist inside the
+# image, but soong's fsgen rejects them as PRODUCT_COPY_FILES destinations
+# ("Path is outside directory"), so they are added here instead.
+#
+# Usage: fix_vendor_mountpoints.sh [vendor.img]
+#
+set -euo pipefail
+
+IMG=${1:-out/target/product/beyond1q/vendor.img}
+TMP=$(mktemp -d)
+trap 'rm -rf "$TMP"' EXIT
+
+# SELinux labels must be written NUL-terminated (as in the stock image),
+# otherwise the kernel sees a broken label and access is denied.
+set_selinux_label() {  # $1 = path inside the image, $2 = label
+    printf '%s\0' "$2" > "$TMP/lbl.bin"
+    debugfs -w -R "ea_set -f $TMP/lbl.bin $1 security.selinux" "$TMP/vendor.raw" >/dev/null 2>&1 || true
+}
+
+
+[ -f "$IMG" ] || { echo "no such image: $IMG" >&2; exit 1; }
+
+simg2img "$IMG" "$TMP/vendor.raw"
+
+for dir in firmware_mnt firmware-modem dsp; do
+    debugfs -w -R "mkdir /$dir" "$TMP/vendor.raw" >/dev/null 2>&1 || true
+    debugfs -w -R "sif /$dir mode 040755" "$TMP/vendor.raw" >/dev/null 2>&1 || true
+    debugfs -w -R "sif /$dir uid 0" "$TMP/vendor.raw" >/dev/null 2>&1 || true
+    debugfs -w -R "sif /$dir gid 0" "$TMP/vendor.raw" >/dev/null 2>&1 || true
+    set_selinux_label "/$dir" "u:object_r:vendor_file:s0"
+    echo "added /$dir"
+done
+
+# Libraries that vendor HALs need but that are not installed into the vendor
+# image (they were pruned from the blob list as "platform libs"). Without them
+# the strongbox keymaster and qseecom HALs cannot even load.
+STAGE=out/target/product/beyond1q/system
+for lib in android.hardware.keymaster@4.1.so libhidlmemory.so \
+           android.hidl.memory@1.0.so android.hidl.memory.token@1.0.so; do
+    [ -f "$STAGE/lib64/$lib" ] || continue
+    debugfs -w -R "rm /lib64/$lib" "$TMP/vendor.raw" >/dev/null 2>&1 || true
+    debugfs -w -R "write $STAGE/lib64/$lib /lib64/$lib" "$TMP/vendor.raw" >/dev/null 2>&1 || true
+    debugfs -w -R "sif /lib64/$lib mode 0100755" "$TMP/vendor.raw" >/dev/null 2>&1 || true
+    set_selinux_label "/lib64/$lib" "u:object_r:same_process_hal_file:s0"
+    echo "added /lib64/$lib"
+done
+for lib in libhidlmemory.so android.hidl.memory@1.0.so android.hidl.memory.token@1.0.so; do
+    [ -f "$STAGE/lib/$lib" ] || continue
+    debugfs -w -R "rm /lib/$lib" "$TMP/vendor.raw" >/dev/null 2>&1 || true
+    debugfs -w -R "write $STAGE/lib/$lib /lib/$lib" "$TMP/vendor.raw" >/dev/null 2>&1 || true
+    debugfs -w -R "sif /lib/$lib mode 0100755" "$TMP/vendor.raw" >/dev/null 2>&1 || true
+    set_selinux_label "/lib/$lib" "u:object_r:same_process_hal_file:s0"
+    echo "added /lib/$lib"
+done
+
+# Restore the vendor ueventd.rc (device node permissions; without it
+# /dev/kgsl-3d0 stays 0600 root:root and surfaceflinger cannot init EGL).
+UEV=device/samsung/sm8150-common/ueventd.rc
+if [ -f "$UEV" ]; then
+    debugfs -w -R "rm /ueventd.rc" "$TMP/vendor.raw" >/dev/null 2>&1 || true
+    debugfs -w -R "write $UEV /ueventd.rc" "$TMP/vendor.raw" >/dev/null 2>&1 || true
+    debugfs -w -R "sif /ueventd.rc mode 0100644" "$TMP/vendor.raw" >/dev/null 2>&1 || true
+    set_selinux_label "/ueventd.rc" "u:object_r:vendor_file:s0"
+    echo "added /ueventd.rc"
+fi
+
+# Copy every stock vendor library that the HALs need but the image lacks
+# (HIDL interface libs, gralloc deps, etc.). Sourced from the stock firmware.
+VLIBDIR=device/samsung/sm8150-common/vendor_libs
+for d in lib64 lib; do
+    for src in "$VLIBDIR/$d"/*.so; do
+        [ -f "$src" ] || continue
+        name=$(basename "$src")
+        debugfs -w -R "rm /$d/$name" "$TMP/vendor.raw" >/dev/null 2>&1 || true
+        debugfs -w -R "write $src /$d/$name" "$TMP/vendor.raw" >/dev/null 2>&1 || true
+        debugfs -w -R "sif /$d/$name mode 0100755" "$TMP/vendor.raw" >/dev/null 2>&1 || true
+        set_selinux_label "/$d/$name" "u:object_r:same_process_hal_file:s0"
+    done
+done
+echo "copied vendor libs from $VLIBDIR"
+
+# GPU/other firmware for /vendor/firmware (kgsl fails to load a630_sqe.fw
+# without it: "loading /vendor/firmware_mnt/image/a630_sqe.fw failed with error -13")
+VFW=device/samsung/sm8150-common/vendor_firmware/firmware
+if [ -d "$VFW" ]; then
+    n=0
+    debugfs -w -R "mkdir /firmware" "$TMP/vendor.raw" >/dev/null 2>&1 || true
+    debugfs -w -R "sif /firmware mode 040755" "$TMP/vendor.raw" >/dev/null 2>&1 || true
+    debugfs -w -R "sif /firmware gid 2000" "$TMP/vendor.raw" >/dev/null 2>&1 || true
+    set_selinux_label "/firmware" "u:object_r:vendor_firmware_file:s0"
+    while IFS= read -r src; do
+        rel=${src#"$VFW"/}
+        dir=$(dirname "$rel")
+        if [ "$dir" != "." ]; then
+            debugfs -w -R "mkdir /firmware/$dir" "$TMP/vendor.raw" >/dev/null 2>&1 || true
+        fi
+        debugfs -w -R "rm /firmware/$rel" "$TMP/vendor.raw" >/dev/null 2>&1 || true
+        debugfs -w -R "write $src /firmware/$rel" "$TMP/vendor.raw" >/dev/null 2>&1 || true
+        debugfs -w -R "sif /firmware/$rel mode 0100644" "$TMP/vendor.raw" >/dev/null 2>&1 || true
+        set_selinux_label "/firmware/$rel" "u:object_r:vendor_firmware_file:s0"
+        n=$((n+1))
+    done < <(find "$VFW" -type f)
+    echo "copied $n firmware files to /firmware"
+fi
+
+# HAL services / init rcs / vintf fragments pruned from the blob list.
+# The composer and display-allocator services are required by surfaceflinger
+# ("failed to get hwcomposer service"), their HAL declarations were pruned too.
+VHAL=device/samsung/sm8150-common/vendor_bins
+if [ -d "$VHAL/bin/hw" ]; then
+    for src in "$VHAL"/bin/hw/*; do
+        [ -f "$src" ] || continue
+        name=$(basename "$src")
+        case "$name" in
+            android.hardware.graphics.composer@2.4-service)       lbl="u:object_r:hal_graphics_composer_default_exec:s0" ;;
+            vendor.qti.hardware.display.allocator-service)        lbl="u:object_r:hal_graphics_allocator_default_exec:s0" ;;
+            *) continue ;;
+        esac
+        debugfs -w -R "rm /bin/hw/$name" "$TMP/vendor.raw" >/dev/null 2>&1 || true
+        debugfs -w -R "write $src /bin/hw/$name" "$TMP/vendor.raw" >/dev/null 2>&1 || true
+        debugfs -w -R "sif /bin/hw/$name mode 0100755" "$TMP/vendor.raw" >/dev/null 2>&1 || true
+        set_selinux_label "/bin/hw/$name" "$lbl"
+        echo "added /bin/hw/$name"
+    done
+    for src in "$VHAL"/etc/init/*.rc; do
+        [ -f "$src" ] || continue
+        name=$(basename "$src")
+        case "$name" in
+            android.hardware.graphics.composer@2.4-service.rc|vendor.qti.hardware.display.allocator-service.rc) ;;
+            *) continue ;;
+        esac
+        debugfs -w -R "rm /etc/init/$name" "$TMP/vendor.raw" >/dev/null 2>&1 || true
+        debugfs -w -R "write $src /etc/init/$name" "$TMP/vendor.raw" >/dev/null 2>&1 || true
+        debugfs -w -R "sif /etc/init/$name mode 0100644" "$TMP/vendor.raw" >/dev/null 2>&1 || true
+        set_selinux_label "/etc/init/$name" "u:object_r:vendor_configs_file:s0"
+    done
+    # our own rc additions (early logcat + stdio_to_kmsg composer debug helpers)
+    if [ -f device/samsung/sm8150-common/debug_logcat.rc ]; then
+        debugfs -w -R "rm /etc/init/debug_logcat.rc" "$TMP/vendor.raw" >/dev/null 2>&1 || true
+        debugfs -w -R "write device/samsung/sm8150-common/debug_logcat.rc /etc/init/debug_logcat.rc" "$TMP/vendor.raw" >/dev/null 2>&1 || true
+        debugfs -w -R "sif /etc/init/debug_logcat.rc mode 0100644" "$TMP/vendor.raw" >/dev/null 2>&1 || true
+        set_selinux_label "/etc/init/debug_logcat.rc" "u:object_r:vendor_configs_file:s0"
+        echo "updated /etc/init/debug_logcat.rc"
+    fi
+    if [ -f device/samsung/sm8150-common/capture_composer.sh ]; then
+        debugfs -w -R "rm /bin/capture_composer.sh" "$TMP/vendor.raw" >/dev/null 2>&1 || true
+        debugfs -w -R "write device/samsung/sm8150-common/capture_composer.sh /bin/capture_composer.sh" "$TMP/vendor.raw" >/dev/null 2>&1 || true
+        debugfs -w -R "sif /bin/capture_composer.sh mode 0100755" "$TMP/vendor.raw" >/dev/null 2>&1 || true
+        set_selinux_label "/bin/capture_composer.sh" "u:object_r:vendor_file:s0"
+        echo "added /bin/capture_composer.sh"
+    fi
+fi
+VFRAG=device/samsung/sm8150-common/vendor_fragments
+if [ -d "$VFRAG" ]; then
+    for src in "$VFRAG"/*.xml; do
+        [ -f "$src" ] || continue
+        name=$(basename "$src")
+        [ "$name" = "power-samsung.xml" ] && continue   # we use the QTI power HAL
+        debugfs -w -R "rm /etc/vintf/manifest/$name" "$TMP/vendor.raw" >/dev/null 2>&1 || true
+        debugfs -w -R "write $src /etc/vintf/manifest/$name" "$TMP/vendor.raw" >/dev/null 2>&1 || true
+        debugfs -w -R "sif /etc/vintf/manifest/$name mode 0100644" "$TMP/vendor.raw" >/dev/null 2>&1 || true
+        set_selinux_label "/etc/vintf/manifest/$name" "u:object_r:vendor_configs_file:s0"
+    done
+    echo "restored vintf fragments"
+fi
+
+# HIDL interface libs the restored HAL services link against; they are built by
+# AOSP but only installed into /system.
+for lib in android.hardware.graphics.composer@2.1.so \
+           android.hardware.graphics.composer@2.2.so \
+           android.hardware.graphics.composer@2.3.so \
+           android.hardware.graphics.composer@2.4.so \
+           android.hardware.graphics.composer@2.1-resources.so \
+           android.hardware.graphics.composer@2.2-resources.so \
+           libsync.so libprocessgroup.so \
+           android.system.net.netd@1.1.so; do
+    [ -f "$STAGE/lib64/$lib" ] || continue
+    debugfs -w -R "rm /lib64/$lib" "$TMP/vendor.raw" >/dev/null 2>&1 || true
+    debugfs -w -R "write $STAGE/lib64/$lib /lib64/$lib" "$TMP/vendor.raw" >/dev/null 2>&1 || true
+    debugfs -w -R "sif /lib64/$lib mode 0100755" "$TMP/vendor.raw" >/dev/null 2>&1 || true
+    set_selinux_label "/lib64/$lib" "u:object_r:same_process_hal_file:s0"
+done
+
+img2simg "$TMP/vendor.raw" "$IMG"
+echo "rewrote $IMG"

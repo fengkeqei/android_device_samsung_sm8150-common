@@ -1,0 +1,131 @@
+# restore_list.txt — files restored from the parity seed into vendor.img.
+# Lines beginning with '#' are ignored by restore_vendor_parity.sh.
+#
+# NOTE (Round 70 parity review): 7 entries were REMOVED because they are real
+# build products — present in installed-files-vendor.txt and produced under
+# out/.../vendor/ — so restoring the seed's older copy only downgraded/clobbered
+# them (a plain "build product vs stock blob" misclassification):
+#   /etc/vintf/manifest/android.hardware.wifi.supplicant.xml   (v4 -> v3 downgrade)
+#   /lib/libhidlbase.so                                        (stale pre-instrumentation build)
+#   /lib64/android.hardware.security.keymint-V1-ndk.so         (Round 40b manual inject)
+#   /lib64/android.hardware.wifi.supplicant-V4-ndk.so          (v4 -> v3 downgrade)
+#   /lib64/android.system.keystore2-V1-ndk.so                  (Round 40b manual inject)
+#   /lib64/hw/android.hardware.bluetooth@1.0-impl.so
+#   /lib64/hw/audio.r_submix.default.so
+# Do not re-add without re-checking installed-files-vendor.txt first.
+#
+# CORRECTION (Round 71): 4 of the 7 rows re-added below. The "build product"
+# premise failed empirically — the image build DROPPED these (not in the
+# packaging install list), which broke wpa_supplicant in the flashed vendor:
+#   CANNOT LINK EXECUTABLE wpa_supplicant: keystore2-V1-ndk.so not found
+# and without the vintf fragment servicemanager rejected ISupplicant
+# registration (Round 67 "NULL VINTF MANIFEST" class) -> silent exit -> no WiFi.
+# /bin/hw/wpa_supplicant (row above) is restored from the seed and links
+# against these libs; the set is self-consistent (verified: WiFi connects).
+#   /etc/vintf/manifest/android.hardware.wifi.supplicant.xml   (v4 -> v3 downgrade)
+#   /lib64/android.hardware.security.keymint-V1-ndk.so         (Round 40b manual inject)
+#   /lib64/android.hardware.wifi.supplicant-V4-ndk.so          (v4 -> v3 downgrade)
+#   /lib64/android.system.keystore2-V1-ndk.so                  (Round 40b manual inject)
+/etc/vintf/manifest/android.hardware.wifi.supplicant.xml
+/lib64/android.hardware.security.keymint-V1-ndk.so
+/lib64/android.hardware.wifi.supplicant-V4-ndk.so
+/lib64/android.system.keystore2-V1-ndk.so
+/bin/hw/android.hardware.audio.service
+/bin/hw/android.hardware.bluetooth@1.0-service.disabled
+/bin/hw/android.hardware.bluetooth@1.1-service
+/bin/hw/android.hardware.health-service.samsung
+/bin/hw/android.hardware.memtrack@1.0-service
+/bin/hw/android.hardware.sensors@2.0-service.multihal
+/bin/hw/vendor.samsung.hardware.light-service
+/bin/hw/wpa_supplicant
+/bin/init.qcom.usb.sh
+/etc/acdbdata/Bluetooth_cal.acdb
+/etc/acdbdata/Codec_cal.acdb
+/etc/acdbdata/General_cal.acdb
+/etc/acdbdata/Global_cal.acdb
+/etc/acdbdata/Handset_cal.acdb
+/etc/acdbdata/Hdmi_cal.acdb
+/etc/acdbdata/Headset_cal.acdb
+/etc/acdbdata/Speaker_cal.acdb
+/etc/acdbdata/workspaceFile.qwsp
+/etc/bluetooth_qti_audio_policy_configuration.xml
+/etc/default_volume_tables.xml.orig
+/etc/init/android.hardware.audio.service.rc
+/etc/init/android.hardware.bluetooth@1.0-service.rc.disabled
+/etc/init/android.hardware.bluetooth@1.1-service.rc
+/etc/init/android.hardware.health-service.samsung.rc
+/etc/init/android.hardware.memtrack@1.0-service.rc
+/etc/init/android.hardware.sensors@2.0-service-multihal.rc
+/etc/init/android.hardware.tetheroffload-service.example.rc
+/etc/init/android.hardware.wifi.supplicant-service.rc
+/etc/init/hw/init.qcom.usb.rc
+/etc/init/samsung.software.media.c2@1.0-service.rc.disabled
+/etc/light-service.lineage.xml.bak
+/etc/lights-default-sec.rc.bak
+/etc/lights-default-sec.xml.bak
+/etc/media_codecs.xml
+/etc/seccomp_policy/mediacodec.policy
+/etc/vintf/manifest/android.hardware.bluetooth.audio@2.0.xml
+/etc/vintf/manifest/android.hardware.bluetooth@1.1-service.xml
+/etc/vintf/manifest/android.hardware.health-service.samsung.xml
+/etc/vintf/manifest/android.hardware.tetheroffload.xml
+/etc/vintf/manifest/los_backfill.xml
+/etc/vintf/manifest/vendor.qti.hardware.bluetooth_audio@2.0.xml
+/etc/wifi/p2p_supplicant.conf
+/etc/wifi/wpa_supplicant.conf
+/lib/android.hardware.audio.common-util.so
+/lib/android.hardware.audio.common@6.0-util.so
+/lib/android.hardware.audio.common@6.0.so
+/lib/android.hardware.audio.effect@6.0-util.so
+/lib/android.hardware.audio.effect@6.0.so
+/lib/android.hardware.audio@6.0-util.so
+/lib/android.hardware.audio@6.0.so
+/lib/android.hardware.camera.device@1.0.so
+/lib/android.hardware.camera.device@3.3.so
+/lib/android.hardware.camera.device@3.4.so
+/lib/android.hardware.camera.device@3.5.so
+/lib/android.hardware.camera.device@3.6.so
+/lib/android.hardware.camera.provider@2.4.so
+/lib/android.hardware.camera.provider@2.5.so
+/lib/android.hardware.camera.provider@2.6.so
+/lib/hw/android.hardware.audio.effect@6.0-impl.so
+/lib/hw/android.hardware.audio@6.0-impl.so
+/lib/hw/android.hardware.bluetooth.audio@2.0-impl.so
+/lib/hw/android.hardware.graphics.mapper@3.0-impl-qti-display.so
+/lib/hw/android.hardware.graphics.mapper@4.0-impl-qti-display.so
+/lib/hw/android.hardware.memtrack@1.0-impl.so
+/lib/hw/audio.r_submix.default.so
+/lib/libOmxSwVdec.so
+/lib/libOmxSwVencMpeg4.so
+/lib/libOmxVdec.so
+/lib/libOmxVenc.so
+/lib/libarbitrarybytes.so
+/lib/libaudioroute.so
+/lib/libbinder_ndk.so
+/lib/liblog.so
+/lib/libmediautils_vendor.so
+/lib/libmemunreachable.so
+/lib/libmm-omxcore.so
+/lib/libstagefright_softomx_plugin.so
+/lib/libstagefrighthw.so
+/lib64/android.frameworks.cameraservice.common@2.0.so
+/lib64/android.frameworks.cameraservice.device@2.0.so
+/lib64/android.hardware.bluetooth@1.0-impl.so
+/lib64/android.hardware.bluetooth@1.1.so
+/lib64/android.hardware.common-V1-ndk_platform.so
+/lib64/android.hardware.health@2.0.so
+/lib64/android.hardware.power-V1-ndk_platform.so
+/lib64/hw/android.hardware.bluetooth.audio@2.0-impl.so
+/lib64/hw/android.hardware.gatekeeper@1.0-impl.so
+/lib64/hw/android.hardware.graphics.mapper@3.0-impl-qti-display.so
+/lib64/hw/android.hardware.graphics.mapper@4.0-impl-qti-display.so
+/lib64/hw/android.hardware.memtrack@1.0-impl.so
+/lib64/libOmxSwVdec.so
+/lib64/libOmxSwVencMpeg4.so
+/lib64/libOmxVdec.so
+/lib64/libOmxVenc.so
+/lib64/libarbitrarybytes.so
+/lib64/libkeystore-engine-wifi-hidl.so
+/lib64/libmm-omxcore.so
+/lib64/libstagefrighthw.so
+/lib64/vendor.samsung.hardware.light-V1-ndk_platform.so
