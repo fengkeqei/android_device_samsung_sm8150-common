@@ -1,0 +1,19 @@
+# Round-72 72-4: Samsung hyper performance daemon (vendor.samsung.hardware.hyper-service)
+# ships without a stock sepolicy domain and its .rc has no seclabel, so it
+# landed in init and generated ~600 denials (execute of the service binary,
+# dlopen of libhyper.so, binder calls into system_server).
+type vendor_hyper, domain;
+type vendor_hyper_exec, exec_type, vendor_file_type, file_type;
+
+init_daemon_domain(vendor_hyper)
+
+# dlopen of vendor libs (libhyper.so and friends)
+allow vendor_hyper vendor_file:file { r_file_perms execute_no_trans };
+r_dir_file(vendor_hyper, system_lib_file)
+
+# notifies/performance hooks talk back to the framework
+binder_use(vendor_hyper)
+allow vendor_hyper system_server:binder call;
+
+# POSIX timers used by the performance loops
+allow vendor_hyper self:capability { sys_nice };

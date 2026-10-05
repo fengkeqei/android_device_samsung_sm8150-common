@@ -10,3 +10,15 @@ allow init spu_file:dir mounton;
 
 # Mount points for the firmware partitions live in the vendor image
 allow init vendor_file:dir mounton;
+
+# Round-72 72-4: enforcing switch additions. Samsung stock daemons that run
+# from init get their own domains via file_contexts exec labels (hyper,
+# argosd); what remains on init itself:
+allow init system_server:binder call;
+allow init self:netlink_kobject_uevent_socket read;
+allow init self:qipcrtr_socket { read write };
+# factory.ssc (Samsung SSC factory daemon, runs in init domain) netlink monitor
+allow init self:netlink_socket read;
+allow init self:qipcrtr_socket { create getattr setopt };
+allow init self:netlink_socket { create bind write read };
+allow init sysfs_lcd_writable:file open;
