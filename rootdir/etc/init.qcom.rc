@@ -1069,4 +1069,6 @@ on post-fs-data
 # Enforcing needs it: the camera HAL torch write fails EACCES otherwise.
 on property:sys.boot_completed=1
     chown system system /sys/devices/virtual/camera/flash/rear_flash
-    chmod 0664 /sys/devices/virtual/camera/flash/rear_flash
+    # the camera HAL runs as cameraserver (u1047) = "other" here; 0664 leaves
+    # it read-only and the torch write fails EACCES
+    chmod 0666 /sys/devices/virtual/camera/flash/rear_flash
