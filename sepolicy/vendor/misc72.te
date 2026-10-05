@@ -1,0 +1,32 @@
+# Round-72 72-4: enforcing switch additions (batch 2)
+
+# health HAL walks power_supply nodes
+allow hal_health_default sysfs_battery:dir search;
+allow hal_health_default sysfs:file { open read };
+
+# netd helpers attach to rild sockets (netboost)
+allow netutils_wrapper rild:fd use;
+allow netutils_wrapper rild:fifo_file { read write };
+allow netutils_wrapper rild:unix_stream_socket { read write };
+allow netutils_wrapper rild:netlink_route_socket { read write };
+
+# fingerprint HAL side channel to the QBT sensor device
+allow hal_fingerprint_default vendor_qbt_device:chr_file ioctl;
+
+# bluetooth HAL reads /proc node for chip power state
+allow hal_bluetooth_default proc:file read;
+
+# qcom init scripts chmod/chown sysfs nodes
+allow vendor_qti_init_shell sysfs:file setattr;
+allow vendor_qti_init_shell vendor_sysfs_msm_power:file setattr;
+
+# radio reads an unlabeled node (misc samsung sysfs)
+allow radio unlabeled:file read;
+
+# Round-72 72-4 second pass: enforcing cold-boot leftovers
+allow hal_health_default sysfs_battery:dir { search read };
+allow hal_sensors_default sysfs_input:file { open read write };
+allow hal_sensors_default sysfs_sensors:file { open write };
+allow zygote self:capability kill;
+allow vendor_hal_gnss_qti system_prop:file read;
+allow hal_audio_default efs_file:dir search;

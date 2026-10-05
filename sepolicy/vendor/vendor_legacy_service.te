@@ -1,0 +1,23 @@
+# Round-72 72-4: catch-all domain for Samsung proprietary vendor services that
+# stock ships without sepolicy domains (vibrator@2.2, authfw, hqm, tlc.*,
+# thermal, wifi@2.0, ...). They used to fall into the init domain, which
+# enforcing forbids. One shared permissive domain keeps the core platform
+# enforcing while these daemons behave exactly as before; convert them to real
+# domains (and drop the permissive statement) as each one gets audited.
+type vendor_legacy_service, domain;
+type vendor_legacy_service_exec, exec_type, vendor_file_type, file_type;
+
+init_daemon_domain(vendor_legacy_service)
+
+# userdebug/eng only: user builds strip permissive domains
+permissive vendor_legacy_service;
+
+allow vendor_legacy_service vendor_file:dir r_dir_perms;
+allow vendor_legacy_service vendor_file:file { r_file_perms map execute_no_trans };
+allow vendor_legacy_service system_lib_file:dir r_dir_perms;
+allow vendor_legacy_service system_lib_file:file { r_file_perms map execute_no_trans };
+
+# framework clients of the legacy Samsung HALs
+binder_call(system_server, vendor_legacy_service)
+binder_call(hwservicemanager, vendor_legacy_service)
+binder_call(hal_audio_default, vendor_legacy_service)

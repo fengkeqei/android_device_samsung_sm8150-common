@@ -1,0 +1,7 @@
+
+# Round-72 72-4: stock argos.rc has no seclabel so argosd used to land in the
+# init domain; labeling /vendor/bin/argosd triggers the argosd_exec transition.
+# What it used to do from init:
+allow argosd sysfs:file r_file_perms;
+allow argosd vendor_sysfs_devicetree_soc:file r_file_perms;
+allow argosd sysfs:dir search;

@@ -1,0 +1,5 @@
+
+# Round-72 72-4: TEE access and property reads for the vaultkeeper daemon
+allow vaultkeeperd tee_device:chr_file { open read write ioctl };
+allow vaultkeeperd ion_device:chr_file { open read ioctl };
+allow vaultkeeperd kmsg_device:chr_file { open write getattr };
