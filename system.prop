@@ -88,3 +88,4 @@ vendor.fingerprint.init_requests=10000,30,10001
 # Dual-SIM (SM-G9730). persist prop lives in /data — a data wipe drops it,
 # so seed it from build.prop too (Round 71).
 persist.vendor.radio.multisim.config=dsds
+ro.vendor.selinux_permissive=1

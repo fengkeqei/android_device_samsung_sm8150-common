@@ -1,0 +1,5 @@
+# Round-72 72-4c: sensor nodes the SSC HAL writes (r_fs types are read-only by
+# neverallow); use the samsung_slsi writable type
+genfscon sysfs /devices/virtual/sensors/hrm_sensor/led_current   u:object_r:sysfs_sensors_writable:s0
+genfscon sysfs /devices/virtual/sensors/hrm_sensor/enable        u:object_r:sysfs_sensors_writable:s0
+genfscon sysfs /devices/virtual/sensors/ProxSensor/enable        u:object_r:sysfs_sensors_writable:s0

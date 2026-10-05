@@ -19,3 +19,6 @@ allow init self:netlink_kobject_uevent_socket read;
 allow init self:qipcrtr_socket { read write };
 # factory.ssc (Samsung SSC factory daemon, runs in init domain) netlink monitor
 allow init self:netlink_socket read;
+allow init self:qipcrtr_socket { create getattr setopt };
+allow init self:netlink_socket { create bind write read };
+allow init sysfs_lcd_writable:file open;

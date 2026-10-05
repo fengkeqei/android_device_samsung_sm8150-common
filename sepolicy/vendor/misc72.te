@@ -11,7 +11,6 @@ allow netutils_wrapper rild:unix_stream_socket { read write };
 allow netutils_wrapper rild:netlink_route_socket { read write };
 
 # fingerprint HAL side channel to the QBT sensor device
-allow hal_fingerprint_default vendor_qbt_device:chr_file ioctl;
 
 # bluetooth HAL reads /proc node for chip power state
 allow hal_bluetooth_default proc:file read;
@@ -25,8 +24,20 @@ allow radio unlabeled:file read;
 
 # Round-72 72-4 second pass: enforcing cold-boot leftovers
 allow hal_health_default sysfs_battery:dir { search read };
-allow hal_sensors_default sysfs_input:file { open read write };
-allow hal_sensors_default sysfs_sensors:file { open write };
+allow hal_sensors_default sysfs_input:file { open read };
 allow zygote self:capability kill;
-allow vendor_hal_gnss_qti system_prop:file read;
 allow hal_audio_default efs_file:dir search;
+
+# Round-72 72-4c: enforcing pass 2 leftovers
+allow hal_health_default sysfs:file getattr;
+allow hal_health_default sysfs_battery:dir { search open read };
+allow argosd vendor_sysfs_devicetree_soc:dir search;
+allow hal_bluetooth_default proc:file { open read write };
+allow hal_usb_default vendor_sysfs_usb_c:dir { search open read };
+allow hal_usb_default sysfs_battery:dir search;
+allow vendor_hal_gnss_qti sysfs_battery:dir search;
+allow vendor_hal_gnss_qti sysfs:file { open write };
+allow vendor_qti_init_shell sysfs_devices_system_cpu:file setattr;
+allow vendor_hal_gnss_qti sysfs:file getattr;
+allow tee vendor_data_file:file { open read };
+allow hal_fingerprint_default vendor_qbt_device:chr_file rw_file_perms;

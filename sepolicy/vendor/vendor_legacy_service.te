@@ -21,3 +21,20 @@ allow vendor_legacy_service system_lib_file:file { r_file_perms map execute_no_t
 binder_call(system_server, vendor_legacy_service)
 binder_call(hwservicemanager, vendor_legacy_service)
 binder_call(hal_audio_default, vendor_legacy_service)
+
+# Round-72 72-4c: access map from the permissive-functional boot
+allow vendor_legacy_service video_device:chr_file { open read write ioctl };
+allow vendor_legacy_service gpu_device:chr_file { open read write ioctl map };
+allow vendor_legacy_service vendor_camera_data_file:dir rw_dir_perms;
+allow vendor_legacy_service vendor_camera_data_file:file create_file_perms;
+allow vendor_legacy_service sysfs_vibrator:dir search;
+allow vendor_legacy_service sysfs_vibrator:file { open read write };
+binder_call(cameraserver, vendor_legacy_service)
+binder_call(nfc, vendor_legacy_service)
+
+# Round-72 72-4c pass 3: final residuals
+allow vendor_legacy_service sysfs:dir search;
+allow vendor_legacy_service sysfs:file { open read getattr };
+allow vendor_legacy_service ion_device:chr_file { open read };
+allow vendor_legacy_service shell:fd use;
+allow vendor_legacy_service shell:fifo_file write;

@@ -1045,3 +1045,21 @@ service qfp-daemon /vendor/bin/qfp-daemon
 	class late_start
 	user system
 	group system drmrpc diag input
+
+# Round-72 72-4: stock sets vendor.sys.qseecomd.enable from somewhere that does
+# not exist on this build, so the Secure Storage daemon (gatekeeper password
+# records, camera sensor auth) never started. Fire the trigger at post-fs-data,
+# recreating the directories the stock rc prepares, because the camera provider
+# (class hal, ~6.3s) races the stock late-fs trigger (~7.3s) and then fails
+# sensor auth with zero devices.
+on post-fs-data
+    mkdir /dev/.secure_storage 0711 system system
+    mkdir /data/vendor/secure_storage 0711 system system
+    setprop vendor.sys.qseecomd.enable true
+    # Start directly as well: property triggers can lag the class-start of the
+    # camera provider, which needs SSD auth or it enumerates zero devices.
+    start secure_storage
+
+on property:init.svc.secure_storage=running
+    # If the provider still raced ahead of SSD, re-kick it once auth is up.
+    restart sec-camera-provider-4-0
