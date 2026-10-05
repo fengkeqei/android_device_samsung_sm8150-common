@@ -38,3 +38,9 @@ allow vendor_legacy_service sysfs:file { open read getattr };
 allow vendor_legacy_service ion_device:chr_file { open read };
 allow vendor_legacy_service shell:fd use;
 allow vendor_legacy_service shell:fifo_file write;
+
+# camera provider (in the legacy catch-all) drives the flash via sysfs and
+# calls back into cameraserver for torch status
+allow vendor_legacy_service sysfs_camera_writable:dir search;
+allow vendor_legacy_service sysfs_camera_writable:file rw_file_perms;
+binder_call(vendor_legacy_service, cameraserver)

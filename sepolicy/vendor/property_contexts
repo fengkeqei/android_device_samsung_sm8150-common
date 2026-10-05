@@ -1,0 +1,6 @@
+# Round-72 72-4: vaultkeeperd reads these boot props in a loop; default_prop is
+# system-internal (neverallow for vendor), give them a vendor-readable label.
+ro.boot.em.did u:object_r:vendor_default_prop:s0 exact
+ro.boot.em.status u:object_r:vendor_default_prop:s0 exact
+ro.vendor.security.vaultkeeper.id u:object_r:vendor_default_prop:s0 exact
+ro.factory.factory_binary u:object_r:vendor_default_prop:s0 exact

@@ -3,3 +3,9 @@
 genfscon sysfs /devices/virtual/sensors/hrm_sensor/led_current   u:object_r:sysfs_sensors_writable:s0
 genfscon sysfs /devices/virtual/sensors/hrm_sensor/enable        u:object_r:sysfs_sensors_writable:s0
 genfscon sysfs /devices/virtual/sensors/ProxSensor/enable        u:object_r:sysfs_sensors_writable:s0
+# Round-72 72-4: BT power switch (bt_upio writes rfkill state)
+# /sys/class/rfkill is a symlink; genfscon matches the real device path
+genfscon sysfs /devices/platform/soc/soc:bt_driver/rfkill/rfkill0/state u:object_r:sysfs_bluetooth_writable:s0
+genfscon sysfs /devices/virtual/misc/bluetooth u:object_r:sysfs_bluetooth_writable:s0
+# camera flash/torch control nodes (rear_flash, front_flash, ...)
+genfscon sysfs /devices/virtual/camera u:object_r:sysfs_camera_writable:s0

@@ -39,5 +39,19 @@ allow vendor_hal_gnss_qti sysfs_battery:dir search;
 allow vendor_hal_gnss_qti sysfs:file { open write };
 allow vendor_qti_init_shell sysfs_devices_system_cpu:file setattr;
 allow vendor_hal_gnss_qti sysfs:file getattr;
-allow tee vendor_data_file:file { open read };
+# qseecomd (tee) proxies gatekeeper/weaver record storage in /data/vendor
+allow tee vendor_data_file:dir { search open read write };
+allow tee vendor_data_file:file rw_file_perms;
 allow hal_fingerprint_default vendor_qbt_device:chr_file rw_file_perms;
+
+# Round-72 72-4: AIDL ndk support libs installed at /vendor/lib64 root are
+# same_process_hal_file; their read by HAL domains is dontaudited in the
+# platform policy, which surfaced as "library not found" under enforcing.
+allow hal_wifi_supplicant_default same_process_hal_file:file { open read getattr map };
+allow hal_wifi_hostapd_default same_process_hal_file:file { open read getattr map };
+allow hal_bluetooth_default same_process_hal_file:file { open read getattr map };
+allow hal_camera_default same_process_hal_file:file { open read getattr map };
+allow vendor_legacy_service same_process_hal_file:file { open read getattr map };
+# BT rfkill power switch (relabeled to sysfs_bluetooth_writable via genfscon)
+allow hal_bluetooth_default sysfs_bluetooth_writable:file rw_file_perms;
+allow hal_bluetooth_default sysfs_bluetooth_writable:dir search;

@@ -1060,6 +1060,13 @@ on post-fs-data
     # camera provider, which needs SSD auth or it enumerates zero devices.
     start secure_storage
 
-on property:init.svc.secure_storage=running
-    # If the provider still raced ahead of SSD, re-kick it once auth is up.
-    restart sec-camera-provider-4-0
+# NOTE: no provider re-kick here. The post-fs-data start beats the camera
+# provider reliably; re-kicking on every secure_storage state transition kills
+# an in-use camera (torch died mid-use when the provider got bounced).
+
+# Round-72 72-4: rear_flash is created by the s2mpb02 probe AFTER 'on boot'
+# runs (the stock chown races and loses), so redo ownership at boot_completed.
+# Enforcing needs it: the camera HAL torch write fails EACCES otherwise.
+on property:sys.boot_completed=1
+    chown system system /sys/devices/virtual/camera/flash/rear_flash
+    chmod 0664 /sys/devices/virtual/camera/flash/rear_flash
