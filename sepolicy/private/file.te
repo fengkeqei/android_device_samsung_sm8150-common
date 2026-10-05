@@ -1,8 +1,1 @@
 type debugfs_ipc, debugfs_type, fs_type;
-
-
-type sysfs_camera_writable, sysfs_type, fs_type;
-
-
-
-# BUILD_PROBE_20260920_MARKER
