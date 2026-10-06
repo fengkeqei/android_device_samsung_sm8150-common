@@ -18,3 +18,4 @@ allow omr_file labeledfs:filesystem associate;
 
 # Round-72 72-4: Samsung camera flash/torch sysfs nodes (/sys/class/camera -> /sys/devices/virtual/camera)
 type sysfs_camera_writable, sysfs_type, fs_type;
+

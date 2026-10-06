@@ -55,3 +55,6 @@
 /(vendor|vendor_dlkm)/lib64/android\.system\.[a-z@._0-9]+-ndk\.so u:object_r:same_process_hal_file:s0
 /(vendor|vendor_dlkm)/lib/android\.hardware\.[a-z@._0-9]+-ndk\.so u:object_r:same_process_hal_file:s0
 /(vendor|vendor_dlkm)/lib/android\.system\.[a-z@._0-9]+-ndk\.so u:object_r:same_process_hal_file:s0
+/(vendor|vendor_dlkm)/bin/ssgtzd u:object_r:vendor_ssgtzd_exec:s0
+/dev/socket/ssgtzd u:object_r:vendor_ssgtzd_socket:s0
+/dev/socket/ssgtzd_opener u:object_r:vendor_ssgtzd_socket:s0

@@ -39,9 +39,12 @@ allow vendor_hal_gnss_qti sysfs_battery:dir search;
 allow vendor_hal_gnss_qti sysfs:file { open write };
 allow vendor_qti_init_shell sysfs_devices_system_cpu:file setattr;
 allow vendor_hal_gnss_qti sysfs:file getattr;
-# qseecomd (tee) proxies gatekeeper/weaver record storage in /data/vendor
-allow tee vendor_data_file:dir { search open read write };
-allow tee vendor_data_file:file rw_file_perms;
+# qseecomd (tee) proxies gatekeeper/weaver record storage in /data/vendor:
+# creates gatekeeper.<userId> on boot (add_name/write) and reads it per verify.
+# Missing any of these leaves the gatekeeper record uninitialized and the
+# correct password verifies as failure.
+allow tee vendor_data_file:dir { search open read write add_name remove_name };
+allow tee vendor_data_file:file { create open read write getattr unlink };
 allow hal_fingerprint_default vendor_qbt_device:chr_file rw_file_perms;
 
 # Round-72 72-4: AIDL ndk support libs installed at /vendor/lib64 root are
