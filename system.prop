@@ -89,3 +89,19 @@ vendor.fingerprint.init_requests=10000,30,10001
 # so seed it from build.prop too (Round 71).
 persist.vendor.radio.multisim.config=dsds
 ro.vendor.selinux_permissive=1
+
+# === A16 bring-up: HAL variant + renderengine + usb (verified on device) ===
+# ro.hardware is "qcom" (from androidboot.hardware), but the shipped modules are
+# named *.msmnile.so. hw_get_module_by_class() checks ro.hardware.<class> first,
+# so pin the per-class variant instead of aliasing every module file.
+ro.hardware.gralloc=msmnile
+ro.hardware.hwcomposer=msmnile
+ro.hardware.memtrack=msmnile
+# RenderEngine: Vulkan cannot be used from surfaceflinger (it is a coredomain and
+# may not dlopen vendor libs); GL via libEGL.so + sphal works.
+debug.renderengine.backend=skiaglthreaded
+# adbd on boot (persist.sys.usb.config -> sys.usb.config=adb -> start adbd)
+persist.sys.usb.config=adb
+# Samsung A12 vendor build.prop value; surfaceflinger refuses to start without it
+ro.sf.lcd_density=420
+ro.sf.init.lcd_density=560

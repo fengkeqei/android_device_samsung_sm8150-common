@@ -52,13 +52,19 @@ BOARD_KERNEL_SEPARATED_DTBO := true
 TARGET_KERNEL_APPEND_DTB := true
 TARGET_KERNEL_ARCH := arm64
 TARGET_KERNEL_CLANG_COMPILE := true
-TARGET_KERNEL_CONFIG := afaneh_beyond1qlte_defconfig
+TARGET_KERNEL_CLANG_VERSION := r563880c
+TARGET_KERNEL_CONFIG := beyond1qlte_usa_single_defconfig
 TARGET_KERNEL_SOURCE := kernel/samsung/sm8150
 # clang 19 raises many new warnings on 4.14 sources; keep the build going
 # lld cannot link MODVERSIONS PREL32 relocs against absolute __crc_ symbols:
 # use GNU ld (2.27, same as NDK r16b flow) but keep the integrated assembler
 TARGET_KERNEL_LLVM_BINUTILS := false
-TARGET_KERNEL_ADDITIONAL_FLAGS := KCFLAGS=-Wno-error LLVM=1 LLVM_IAS=1 AR=llvm-ar
+# 4.14 MODVERSIONS __crc_ PREL32 relocs cannot be linked by lld: pin the kernel
+# link to GNU ld 2.27 (in PATH via the gcc-4.9 prebuilts) while keeping clang
+# + integrated assembler. Presetting KERNEL_CC also bypasses kernel.mk's
+# hardcoded LD=ld.lld default.
+KERNEL_CC := CC=clang LD=aarch64-linux-android-ld
+TARGET_KERNEL_ADDITIONAL_FLAGS := KCFLAGS=-Wno-error LLVM=1 LLVM_IAS=1 AR=llvm-ar LD=aarch64-linux-android-ld
 
 # Boot image (values from stock G9730ZCU8HZE1 boot.img header)
 BOARD_BOOTIMG_HEADER_VERSION := 1
@@ -74,7 +80,7 @@ BOARD_MKBOOTIMG_ARGS += --kernel_offset $(BOARD_KERNEL_OFFSET)
 BOARD_MKBOOTIMG_ARGS += --ramdisk_offset $(BOARD_RAMDISK_OFFSET)
 BOARD_MKBOOTIMG_ARGS += --second_offset $(BOARD_SECOND_OFFSET)
 BOARD_MKBOOTIMG_ARGS += --tags_offset $(BOARD_TAGS_OFFSET)
-BOARD_KERNEL_CMDLINE := console=null androidboot.hardware=qcom androidboot.console=ttyMSM0 androidboot.memcg=1 lpm_levels.sleep_disabled=1 video=vfb:640x400,bpp=32,memsize=3072000 msm_rtb.filter=0x237 service_locator.enable=1 swiotlb=2048 androidboot.usbcontroller=a600000.dwc3 firmware_class.path=/vendor/firmware_mnt/image loop.max_part=7 sec_log=0x200000@0xC1600000 sec_dbg=0x1FF000@0xC1400000 sec_dbg_ex_info=0x1000@0xC15FF000 sec_debug.enable=0 sec_debug.enable_user=0
+BOARD_KERNEL_CMDLINE := console=null androidboot.hardware=qcom androidboot.console=ttyMSM0 androidboot.memcg=1 lpm_levels.sleep_disabled=1 video=vfb:640x400,bpp=32,memsize=3072000 msm_rtb.filter=0x237 service_locator.enable=1 swiotlb=2048 androidboot.usbcontroller=a600000.dwc3 firmware_class.path=/vendor/firmware_mnt/image loop.max_part=7 sec_log=0x200000@0xC1600000 sec_dbg=0x1FF000@0xC1400000 sec_dbg_ex_info=0x1000@0xC15FF000 sec_debug.enable=0 sec_debug.enable_user=0 androidboot.selinux=permissive
 
 # Partitions (from stock layout, non-dynamic; measured on device)
 BOARD_BOOTIMAGE_PARTITION_SIZE := 67108864

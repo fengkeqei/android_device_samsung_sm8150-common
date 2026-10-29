@@ -4,3 +4,6 @@ ro.boot.em.did u:object_r:vendor_default_prop:s0 exact
 ro.boot.em.status u:object_r:vendor_default_prop:s0 exact
 ro.vendor.security.vaultkeeper.id u:object_r:vendor_default_prop:s0 exact
 ro.factory.factory_binary u:object_r:vendor_default_prop:s0 exact
+# qseecomd enable 标志：tee 域需 set，落到 vendor_default_prop 会被 neverallow 拦，
+# 故给独立类型 qseecomd_prop（规则见 tee_qseecomd.te）
+vendor.sys.qseecomd.enable u:object_r:qseecomd_prop:s0 exact

@@ -29,5 +29,6 @@ allow vendor_ssgtzd self:{ socket qipcrtr_socket } create_socket_perms;
 allowxperm vendor_ssgtzd self:{ socket qipcrtr_socket } ioctl msm_sock_ipc_ioctls;
 
 # Round-72: ROT consumers reach its socket
-unix_socket_connect(vold, vendor_ssgtzd, vendor_ssgtzd)
+# A16 neverallow: vold may not connectto vendor domains; FBE-rot WIP disabled until redesigned
+# unix_socket_connect(vold, vendor_ssgtzd, vendor_ssgtzd)
 unix_socket_connect(vendor_legacy_service, vendor_ssgtzd, vendor_ssgtzd)

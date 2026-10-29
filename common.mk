@@ -34,18 +34,24 @@ PRODUCT_ENFORCE_RRO_EXCLUDED_OVERLAYS += \
 # dlopens libbauthserver.so directly (all 13 required ss_* symbols exist in our
 # vendor blobs) and reads type/location from ro.vendor.fingerprint.* (system.prop).
 PRODUCT_SOONG_NAMESPACES += hardware/samsung
+# hardware/samsung's keymaster service links libskeymaster4device, which is a
+# prebuilt declared in the vendor/samsung/sm8150-common namespace; that
+# namespace must be visible or soong reports "undefined module".
+PRODUCT_SOONG_NAMESPACES += vendor/samsung/sm8150-common
 PRODUCT_PACKAGES += \
     android.hardware.biometrics.fingerprint-service.samsung
 
 # Open-source IMS stack (krazey/ImsStack + ImsMedia fork + CarrierSettings,
 # Round 71): VoLTE/VoWiFi without Samsung's proprietary IMS. See README in
 # packages/modules/ImsStack. Emergency MMTEL and RCS stay gated off (defaults).
-$(call inherit-product, packages/modules/ImsMedia/imsmedia.mk)
-$(call inherit-product, packages/apps/CarrierSettings/carrier_settings.mk)
-PRODUCT_PACKAGES += \
-    ImsStack \
-    Iwlan \
-    QualifiedNetworksService
+# NOTE: disabled for the first avium-16.2 bring-up; re-enable once the base
+# system is fully working (ImsStack needs an Android 16 base).
+#$(call inherit-product, packages/modules/ImsMedia/imsmedia.mk)
+#$(call inherit-product, packages/apps/CarrierSettings/carrier_settings.mk)
+#PRODUCT_PACKAGES += \
+#    ImsStack \
+#    Iwlan \
+#    QualifiedNetworksService
 
 # Advertise FEATURE_FINGERPRINT now that a working HAL is present.
 PRODUCT_COPY_FILES += \
@@ -60,6 +66,13 @@ PRODUCT_COPY_FILES += \
 PRODUCT_PACKAGES += \
     init.qcom.rc
 
+# Display/GPU bring-up configs (hand-written, not in the stock dump)
+PRODUCT_COPY_FILES += \
+    $(COMMON_PATH)/configs/vulkan/icd.d/adreno_icd.aarch64.json:$(TARGET_COPY_OUT_VENDOR)/etc/vulkan/icd.d/adreno_icd.aarch64.json \
+    $(COMMON_PATH)/configs/vintf/android.hardware.graphics.composer-qti-display.xml:$(TARGET_COPY_OUT_VENDOR)/etc/vintf/manifest/android.hardware.graphics.composer-qti-display.xml \
+    $(COMMON_PATH)/configs/vintf/android.hardware.graphics.mapper-impl-qti-display.xml:$(TARGET_COPY_OUT_VENDOR)/etc/vintf/manifest/android.hardware.graphics.mapper-impl-qti-display.xml \
+    $(COMMON_PATH)/configs/vintf/vendor.qti.hardware.display.allocator-service.xml:$(TARGET_COPY_OUT_VENDOR)/etc/vintf/manifest/vendor.qti.hardware.display.allocator-service.xml
+
 # Wi-Fi hotspot (AOSP AIDL hostapd; Samsung ships no hostapd HAL service blob,
 # only a stale HIDL manifest fragment. Without this the AP fails with
 # "Cannot find android.hardware.wifi.hostapd.IHostapd/default in VINTF")
@@ -72,8 +85,9 @@ PRODUCT_PACKAGES += \
 # tetheroffload HAL; without it networkstack's OffloadController blocks forever
 # in IOffloadConfig.getService() (HIDL wait), hanging Tethering state machine
 # (Settings tethering page crashes, AP toggle stuck).
+# A16 note: the example service now ships as a vendor APEX.
 PRODUCT_PACKAGES += \
-    android.hardware.tetheroffload-service.example
+    com.android.hardware.tetheroffload
 
 # Audio playback capture (screen record internal audio): the LOS ROM already
 # ships the r_submix audio HAL module, but not its runtime dependency
@@ -108,16 +122,33 @@ PRODUCT_BOOT_JARS += \
 
 # Trust HAL
 
-# keystore2 needs a "default" keymaster instance (the vendor only ships the
-# strongbox one), and vold needs gatekeeper; both are provided by AOSP sources.
-# The -impl library is the HIDL passthrough bridge: without it the service dies
-# with "Could not get passthrough implementation" (exit 1) and, since
-# hwservicemanager retries every second, the 4 crashes trip RescueParty and
-# block boot entirely.
+# keystore2 needs a "default" keymaster instance, and vold needs gatekeeper.
+#
+# keymaster is the STOCK binary, installed by
+# vendor/samsung/sm8150-common/sm8150-common-vendor.mk: it links
+# libskeymaster4device and calls skeymaster::CreateSKeymasterDevice(TEE), which
+# is the only implementation that can unwrap the TEE-bound FBE key. Its rc also
+# creates /mnt/vendor/efs/DAK and fixes gakkeybox permissions.
+#
+# Do NOT use the AOSP android.hardware.keymaster@4.0-service source build: it is
+# a *software* keymaster (SecurityLevel::SOFTWARE), so boot stalls in init's
+# early_hal phase with
+#   "Could not find 'android.hardware.keymaster@4.0::IKeymasterDevice/default'"
+# repeating once per second while vold/zygote/surfaceflinger never start.
+# Samsung keymaster blobs link the legacy sk_delete / ASN1_INTEGER_get_uint32
+# crypto API that upstream BoringSSL dropped; those two symbols are restored in
+# external/boringssl so the blobs load against the A16 system libcrypto.
 PRODUCT_PACKAGES += \
     android.hardware.gatekeeper@1.0-impl \
-    android.hardware.gatekeeper@1.0-service \
-    android.hardware.keymaster@4.0-service
+    android.hardware.gatekeeper@1.0-service
+
+# Keystore2 (A16) only talks KeyMint AIDL, but vendor ships only keymaster@4.0
+# (HIDL, TEE). Add the AOSP software KeyMint service so keystore2 can start and
+# vold stops stalling on android.security.maintenance. SOFTWARE backend cannot
+# unwrap a TEE-bound FBE key, but /data is unencrypted after dropping ice, so
+# this is the quick bring-up path (TEE delegation is the longer-term fix).
+PRODUCT_PACKAGES += \
+    android.hardware.security.keymint-service
 
 # Hwcomposer: the vendor 2.4 service exits immediately, so use the AOSP 2.1
 # service which drives the legacy hwcomposer.msmnile.so via libhwc2on1adapter.

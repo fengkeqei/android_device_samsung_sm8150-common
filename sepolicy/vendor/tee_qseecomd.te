@@ -1,0 +1,8 @@
+# Samsung TEE 守护进程在 u:r:tee:s0 下需要置位 vendor.sys.qseecomd.enable，
+# 否则 qseecomd 起不来 → keymaster/strongbox 崩 → vold 卡死 → softdog 复位。
+#
+# 不能直接 allow tee vendor_default_prop:property_service set，因为 vendor 策略有
+#   neverallow base_typeattr_233 vendor_default_prop (property_service (set))
+# 故给该属性独立类型 qseecomd_prop（见 property_contexts），再授权。
+type qseecomd_prop, property_type;
+allow tee qseecomd_prop:property_service set;

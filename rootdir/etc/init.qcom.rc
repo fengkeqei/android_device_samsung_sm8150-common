@@ -45,10 +45,18 @@ on post-fs-data
     # TSP
     chown system system /sys/class/sec/tsp/cmd
 
+# [A16 bringup] No other rc in this tree invokes mount_all, so fs_mgr_mount_all()
+# never ran -> queue_fs_event() never fired -> the 'nonencrypted' trigger (which
+# performs class_start main) was never queued -> zygote never forked system_server.
+on late-fs
+    mount_all /vendor/etc/fstab.qcom --late
+
 on early-boot
     mount none /system/lib64/libperfmgr.so /vendor/lib64/libperfmgr.so bind
 
 on boot
+    # [bringup] start adbd unconditionally so early boot can be debugged via adb
+    start adbd
     # TEMP DIAG: record DRM device state into kmsg (survives last_kmsg ring)
     exec - root root -- /system/bin/sh -c "echo DIAG-DRI-BEGIN > /dev/kmsg; echo DIAG-DRI-CMD >> /dev/kmsg; cat /proc/cmdline >> /dev/kmsg; echo DIAG-DRI-LSDRI >> /dev/kmsg; ls -la /dev/dri >> /dev/kmsg 2>&1; echo DIAG-DRI-LSDEV >> /dev/kmsg; ls /dev >> /dev/kmsg 2>&1; echo DIAG-DRI-END >> /dev/kmsg"
     # Permissions for booster
