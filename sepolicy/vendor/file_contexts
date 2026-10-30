@@ -107,3 +107,12 @@
 # is never registered -- which blocks BatteryService.onStart on the
 # system_server main thread (boot 2026-10-30, 691 s+).
 /(vendor|vendor_dlkm)/bin/hw/android\.hardware\.health@2\.1-service-samsung u:object_r:hal_health_default_exec:s0
+# qseecom (QSEE TEE HIDL wrapper) needs the same_process_hal_file label on both
+# its interface library and the passthrough impl in hw/. qseecom-service is
+# started by init as a vendor HAL, loads the impl via
+# android_load_sphal_library (PassthroughServiceManager), and a vendor_file
+# label makes the load fail -- the service then exits 1 within 7 ms, init
+# restarts it every 5 s, vaultkeeperd never gets a working TEE ("There is no
+# VK ID"), and vold blocks forever on android.security.maintenance.
+# (boot 2026-10-30, qseecom-service restarted 79 times)
+/(vendor|vendor_dlkm)/lib(64)?/(hw/)?vendor\.qti\.hardware\.qseecom@1\.0(-impl)?\.so u:object_r:same_process_hal_file:s0

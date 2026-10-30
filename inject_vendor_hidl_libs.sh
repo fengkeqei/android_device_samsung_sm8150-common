@@ -256,6 +256,29 @@ for lib in vendor.qti.hardware.qseecom@1.0.so libQSEEComAPI.so libQSEEComAPI_ven
         fi
     done
 done
+# The HIDL passthrough implementation lives in lib*/hw and is dlopened by
+# PassthroughServiceManager; a vendor_file label there fails the same way.
+for d in lib64 lib; do
+    p="/$d/hw/vendor.qti.hardware.qseecom@1.0-impl.so"
+    if debugfs -R "stat $p" "$TMP/vendor.raw" 2>/dev/null | grep -q Inode:; then
+        set_selinux_label "$p" "u:object_r:same_process_hal_file:s0"
+        echo "  ~ $p"
+    fi
+done
+# Persist the rule: init re-runs restorecon from vendor_file_contexts on every
+# boot, which would put vendor_file back on all of the above.
+QSEE_RULE='/(vendor|vendor_dlkm)/lib(64)?/(hw/)?vendor\.qti\.hardware\.qseecom@1\.0(-impl)?\.so u:object_r:same_process_hal_file:s0'
+VFC=/etc/selinux/vendor_file_contexts
+if debugfs -R "dump $VFC $TMP/vfc_qsee.txt" "$TMP/vendor.raw" >/dev/null 2>&1 && [ -s "$TMP/vfc_qsee.txt" ]; then
+    if ! grep -qF "qseecom@1.0" "$TMP/vfc_qsee.txt"; then
+        printf '%s\n' "$QSEE_RULE" >> "$TMP/vfc_qsee.txt"
+        debugfs -w -R "rm $VFC" "$TMP/vendor.raw" >/dev/null 2>&1 || true
+        debugfs -w -R "write $TMP/vfc_qsee.txt $VFC" "$TMP/vendor.raw" >/dev/null 2>&1 || true
+        debugfs -w -R "sif $VFC mode 0100644" "$TMP/vendor.raw" >/dev/null 2>&1 || true
+        set_selinux_label "$VFC" "u:object_r:vendor_configs_file:s0"
+        echo "  + $VFC (qseecom rule appended)"
+    fi
+fi
 
 # keydata/keyrefuge hold the vaultkeeper VK ID. Their fstab lines carried
 # `check`, and e2fsck refuses to skip ("3044 days without being checked") --
