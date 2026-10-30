@@ -209,43 +209,16 @@ if debugfs -R "stat $HEALTH_SVC" "$TMP/vendor.raw" 2>/dev/null | grep -q Inode:;
     fi
 fi
 
-# A16 bring-up: /data must be mounted before class_start main or vold blocks
-# forever on android.security.maintenance (keystore2 cannot initialise without
-# /data) and boot never completes. init.target.rc imports
-# init.samsung.rc + init.${ro.product.vendor.device}.rc, but never
-# init.qcom.rc -- so the `on late-fs: mount_all --late` that used to live in
-# init.qcom.rc was never executed (last_kmsg 2026-10-30 shows only
-# "mount_all ... --early" and /data never mounts). Patch the imported file.
-echo "patching init.beyond1q.rc for late-fs mount:"
-B1Q=/etc/init/hw/init.beyond1q.rc
-if debugfs -R "cat $B1Q" "$TMP/vendor.raw" 2>/dev/null > "$TMP/b1q.rc" && [ -s "$TMP/b1q.rc" ]; then
-    if ! grep -q "mount_all /vendor/etc/fstab.qcom --late" "$TMP/b1q.rc"; then
-        cat >> "$TMP/b1q.rc" <<'RCEOF'
-
-# A16 bring-up: /data must be mounted before class_start main, or vold blocks
-# forever on android.security.maintenance (keystore2 needs /data). This file is
-# imported by init.target.rc; init.qcom.rc is not.
-on late-fs
-    mount_all /vendor/etc/fstab.qcom --late
-RCEOF
-        debugfs -w -R "rm $B1Q" "$TMP/vendor.raw" >/dev/null 2>&1 || true
-        debugfs -w -R "write $TMP/b1q.rc $B1Q" "$TMP/vendor.raw" >/dev/null 2>&1 || true
-        debugfs -w -R "sif $B1Q mode 0100644" "$TMP/vendor.raw" >/dev/null 2>&1 || true
-        set_selinux_label "$B1Q" "u:object_r:vendor_configs_file:s0"
-        echo "  + $B1Q (late-fs mount_all appended)"
-    else
-        echo "  = $B1Q already patched"
-    fi
-else
-    echo "  ! could not read $B1Q"
-fi
-
-# qseecom-service (the HIDL wrapper around the QSEE TEE) exits 1 within ~6 ms
-# every 5 s, so vaultkeeperd never gets a working TEE and reports
-# "There is no VK ID". Its interface library and the QSEE client API are both
-# labelled vendor_file, and a vendor HAL process cannot load vendor_file-typed
-# libraries (same reason the 19 HAL services failed to link). Re-label them
-# same_process_hal_file, matching libhidlbase and the rest of the HAL stack.
+# ---- qseecom (QSEE TEE HIDL wrapper) ----------------------------------------
+# qseecom-service exits 1 within ~5 ms and init restarts it every 5 s, so the
+# TEE is never available: vaultkeeperd reports "There is no VK ID",
+# vendor.keymaster-4-0 exits 255 every 50 s, `vdc keymaster earlyBootEnded`
+# never returns, the post-fs-data action blocks on that exec, and
+# nonencrypted/class_start main never fire (boot 2026-10-30).
+#
+# A vendor HAL process cannot load vendor_file-typed libraries, so the interface
+# lib, the QSEE client API and the hw/ passthrough impl all need
+# same_process_hal_file (same rule that fixed the other 19 HAL services).
 echo "relabelling qseecom HAL libraries:"
 for lib in vendor.qti.hardware.qseecom@1.0.so libQSEEComAPI.so libQSEEComAPI_vendor.so; do
     for d in lib64 lib; do
@@ -256,8 +229,6 @@ for lib in vendor.qti.hardware.qseecom@1.0.so libQSEEComAPI.so libQSEEComAPI_ven
         fi
     done
 done
-# The HIDL passthrough implementation lives in lib*/hw and is dlopened by
-# PassthroughServiceManager; a vendor_file label there fails the same way.
 for d in lib64 lib; do
     p="/$d/hw/vendor.qti.hardware.qseecom@1.0-impl.so"
     if debugfs -R "stat $p" "$TMP/vendor.raw" 2>/dev/null | grep -q Inode:; then
@@ -265,40 +236,57 @@ for d in lib64 lib; do
         echo "  ~ $p"
     fi
 done
-# Persist the rule: init re-runs restorecon from vendor_file_contexts on every
-# boot, which would put vendor_file back on all of the above.
+
+# Persist the qseecom rule in vendor_file_contexts, otherwise restorecon puts
+# vendor_file back on every boot.
 QSEE_RULE='/(vendor|vendor_dlkm)/lib(64)?/(hw/)?vendor\.qti\.hardware\.qseecom@1\.0(-impl)?\.so u:object_r:same_process_hal_file:s0'
-VFC=/etc/selinux/vendor_file_contexts
-if debugfs -R "dump $VFC $TMP/vfc_qsee.txt" "$TMP/vendor.raw" >/dev/null 2>&1 && [ -s "$TMP/vfc_qsee.txt" ]; then
-    if ! grep -qF "qseecom@1.0" "$TMP/vfc_qsee.txt"; then
-        printf '%s\n' "$QSEE_RULE" >> "$TMP/vfc_qsee.txt"
-        debugfs -w -R "rm $VFC" "$TMP/vendor.raw" >/dev/null 2>&1 || true
-        debugfs -w -R "write $TMP/vfc_qsee.txt $VFC" "$TMP/vendor.raw" >/dev/null 2>&1 || true
-        debugfs -w -R "sif $VFC mode 0100644" "$TMP/vendor.raw" >/dev/null 2>&1 || true
-        set_selinux_label "$VFC" "u:object_r:vendor_configs_file:s0"
-        echo "  + $VFC (qseecom rule appended)"
+VFC_Q=/etc/selinux/vendor_file_contexts
+if debugfs -R "dump $VFC_Q $TMP/vfc_q.txt" "$TMP/vendor.raw" >/dev/null 2>&1 && [ -s "$TMP/vfc_q.txt" ]; then
+    if ! grep -qF "qseecom@1.0" "$TMP/vfc_q.txt"; then
+        printf '%s\n' "$QSEE_RULE" >> "$TMP/vfc_q.txt"
+        debugfs -w -R "rm $VFC_Q" "$TMP/vendor.raw" >/dev/null 2>&1 || true
+        debugfs -w -R "write $TMP/vfc_q.txt $VFC_Q" "$TMP/vendor.raw" >/dev/null 2>&1 || true
+        debugfs -w -R "sif $VFC_Q mode 0100644" "$TMP/vendor.raw" >/dev/null 2>&1 || true
+        set_selinux_label "$VFC_Q" "u:object_r:vendor_configs_file:s0"
+        echo "  + $VFC_Q (qseecom rule appended)"
     fi
 fi
 
+# Send qseecom-service's stdout/stderr to /dev/kmsg. Without this the service
+# dies silently: logd never creates /data/misc/logd/logcat on this device (it
+# starts before /data is mounted and logd-reinit lives in the post-fs-data
+# action that blocks on `vdc keymaster earlyBootEnded`).
+echo "adding stdio_to_kmsg to qseecom-service rc:"
+QSEE_RC=/etc/init/vendor.qti.hardware.qseecom@1.0-service.rc
+if debugfs -R "cat $QSEE_RC" "$TMP/vendor.raw" 2>/dev/null > "$TMP/qsee.rc" && [ -s "$TMP/qsee.rc" ]; then
+    if ! grep -q "stdio_to_kmsg" "$TMP/qsee.rc"; then
+        awk '/^service qseecom-service/ { print; print "    stdio_to_kmsg"; next } { print }' \
+            "$TMP/qsee.rc" > "$TMP/qsee.rc.new" && mv "$TMP/qsee.rc.new" "$TMP/qsee.rc"
+        debugfs -w -R "rm $QSEE_RC" "$TMP/vendor.raw" >/dev/null 2>&1 || true
+        debugfs -w -R "write $TMP/qsee.rc $QSEE_RC" "$TMP/vendor.raw" >/dev/null 2>&1 || true
+        debugfs -w -R "sif $QSEE_RC mode 0100644" "$TMP/vendor.raw" >/dev/null 2>&1 || true
+        set_selinux_label "$QSEE_RC" "u:object_r:vendor_configs_file:s0"
+        echo "  + $QSEE_RC (stdio_to_kmsg)"
+    fi
+fi
+
+# ---- /data + keydata mounting ----------------------------------------------
 # keydata/keyrefuge hold the vaultkeeper VK ID. Their fstab lines carried
-# `check`, and e2fsck refuses to skip ("3044 days without being checked") --
-# combined with `errors=panic` the mount fails, and `nofail` then swallows it
-# silently. Without /keydata mounted, vaultkeeperd reports "There is no VK ID",
-# its service preparation fails, vold blocks forever on
-# android.security.maintenance, and boot never completes (last_kmsg 2026-10-30).
-# Drop `check` (and the panic-on-error policy) so the partitions simply mount.
+# `check`, and e2fsck refuses to skip ("3049 days without being checked"),
+# so the mount failed and `nofail` swallowed it. Without /keydata,
+# vaultkeeperd reports "There is no VK ID".
+# /data itself is mounted by init.target.rc's own `mount_all --late`; do NOT
+# add another mount_all to init.beyond1q.rc -- a second mount returns EBUSY and
+# makes queue_fs_event() fail, which suppresses the nonencrypted trigger.
 echo "patching fstab.qcom for keydata/keyrefuge:"
 FSTAB=/etc/fstab.qcom
 if debugfs -R "cat $FSTAB" "$TMP/vendor.raw" 2>/dev/null > "$TMP/fstab" && [ -s "$TMP/fstab" ]; then
     changed=0
     for part in keydata keyrefuge; do
         if grep -q "by-name/$part" "$TMP/fstab"; then
-            # Drop the flags on the line(s) whose second field is the mount point
-            # for this partition (sed range by address is fragile here).
             awk -v part="$part" '
                 $1 ~ ("by-name/" part) {
-                    gsub(/,check/, ""); gsub(/,errors=panic/, "");
-                    gsub(/errors=panic,/, "");
+                    gsub(/,check/, ""); gsub(/,errors=panic/, ""); gsub(/errors=panic,/, "");
                     found=1
                 }
                 { print }
@@ -312,11 +300,26 @@ if debugfs -R "cat $FSTAB" "$TMP/vendor.raw" 2>/dev/null > "$TMP/fstab" && [ -s 
         debugfs -w -R "sif $FSTAB mode 0100644" "$TMP/vendor.raw" >/dev/null 2>&1 || true
         set_selinux_label "$FSTAB" "u:object_r:vendor_configs_file:s0"
         echo "  + $FSTAB (keydata/keyrefuge: dropped check + errors=panic)"
-    else
-        echo "  = $FSTAB already patched"
     fi
-else
-    echo "  ! could not read $FSTAB"
+fi
+
+# ---- logd restart after /data is up ----------------------------------------
+# logd starts at ~6.3 s, /data mounts at ~6.6 s, so logd cannot create
+# /data/misc/logd/logcat and no logcat survives a failed boot. logd-reinit
+# would fix this but it lives in post-fs-data, which blocks on
+# `vdc keymaster earlyBootEnded`. Restart logd right after mount_all --late.
+echo "adding logd restart to init.target.rc:"
+TGT_RC=/etc/init/hw/init.target.rc
+if debugfs -R "cat $TGT_RC" "$TMP/vendor.raw" 2>/dev/null > "$TMP/target.rc" && [ -s "$TMP/target.rc" ]; then
+    if ! grep -q "restart logd" "$TMP/target.rc"; then
+        awk '/mount_all \/vendor\/etc\/fstab\.qcom --late/ { print; print "    restart logd"; next } { print }' \
+            "$TMP/target.rc" > "$TMP/target.rc.new" && mv "$TMP/target.rc.new" "$TMP/target.rc"
+        debugfs -w -R "rm $TGT_RC" "$TMP/vendor.raw" >/dev/null 2>&1 || true
+        debugfs -w -R "write $TMP/target.rc $TGT_RC" "$TMP/vendor.raw" >/dev/null 2>&1 || true
+        debugfs -w -R "sif $TGT_RC mode 0100644" "$TMP/vendor.raw" >/dev/null 2>&1 || true
+        set_selinux_label "$TGT_RC" "u:object_r:vendor_configs_file:s0"
+        echo "  + $TGT_RC (restart logd after mount_all --late)"
+    fi
 fi
 
 img2simg "$TMP/vendor.raw" "$IMG"
