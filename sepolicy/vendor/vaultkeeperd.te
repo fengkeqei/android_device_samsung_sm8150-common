@@ -3,3 +3,13 @@
 allow vaultkeeperd tee_device:chr_file { open read write ioctl };
 allow vaultkeeperd ion_device:chr_file { open read ioctl };
 allow vaultkeeperd kmsg_device:chr_file { open write getattr };
+
+# vaultkeeperd polls vendor.sys.qseecomd.enable before it will use the TEE.
+# vendor_internal_prop(qseecomd_prop) only grants coredomain init/dumpstate
+# read access (its neverallow excludes everyone else), so the daemon needs an
+# explicit read grant or it spins on
+#   avc: denied { read } for name="u:object_r:qseecomd_prop:s0"
+#   vaultkeeper: qseecomd is not ready (vendor.sys.qseecomd.enable:true)
+# forever -- and vold then blocks on android.security.maintenance because
+# keystore2 cannot come up without the TEE (boot 2026-10-30, 392 s).
+allow vaultkeeperd qseecomd_prop:file r_file_perms;
