@@ -99,3 +99,11 @@
 # allocator + memtrack service binaries need their own exec domains
 /(vendor|vendor_dlkm)/bin/hw/vendor\.qti\.hardware\.display\.allocator-service u:object_r:hal_graphics_allocator_default_exec:s0
 /(vendor|vendor_dlkm)/bin/hw/android\.hardware\.memtrack@1\.0-service           u:object_r:hal_memtrack_default_exec:s0
+# Samsung's health HAL binary carries a -samsung suffix, so the stock AOSP rule
+# (/(vendor|system/vendor)/bin/hw/android\.hardware\.health@2\.1-service) does
+# not match it and it falls back to vendor_file. init then refuses to exec it
+# ("has incorrect label ... expected ... hal_health_default_exec"), the service
+# exits 4 times and gives up, and android.hardware.health@2.0::IHealth/default
+# is never registered -- which blocks BatteryService.onStart on the
+# system_server main thread (boot 2026-10-30, 691 s+).
+/(vendor|vendor_dlkm)/bin/hw/android\.hardware\.health@2\.1-service-samsung u:object_r:hal_health_default_exec:s0

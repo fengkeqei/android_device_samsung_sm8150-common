@@ -172,5 +172,42 @@ for lib in vendor.samsung.hardware.snap@1.2-impl.so; do
     done
 done
 
+# Samsung's health HAL binary is named ...-service-samsung, which the stock AOSP
+# file_contexts rule for android.hardware.health@2.1-service does not match, so
+# it falls back to vendor_file. init then refuses to exec it ("has incorrect
+# label ... expected hal_health_default_exec"), the service exits 4 times and
+# android.hardware.health@2.0::IHealth/default is never registered -- which
+# blocks BatteryService.onStart on the system_server main thread. The device
+# tree's sepolicy/vendor/file_contexts now declares the rule; this sets the
+# attribute on the already-built image so no rebuild is needed.
+echo "fixing health service exec label:"
+HEALTH_SVC=/bin/hw/android.hardware.health@2.1-service-samsung
+HEALTH_RULE='/(vendor|vendor_dlkm)/bin/hw/android\.hardware\.health@2\.1-service-samsung u:object_r:hal_health_default_exec:s0'
+if debugfs -R "stat $HEALTH_SVC" "$TMP/vendor.raw" 2>/dev/null | grep -q Inode:; then
+    set_selinux_label "$HEALTH_SVC" "u:object_r:hal_health_default_exec:s0"
+    echo "  ~ $HEALTH_SVC -> hal_health_default_exec"
+
+    # init re-runs restorecon from /vendor/etc/selinux/vendor_file_contexts on
+    # every boot, so the attribute alone would be reverted. Append the rule to
+    # the image's copy of that file (generated at build time from the device
+    # tree's sepolicy; the device-tree rule added to
+    # sepolicy/vendor/file_contexts makes this match what a full rebuild emits).
+    VFC=/etc/selinux/vendor_file_contexts
+    if debugfs -R "dump $VFC $TMP/vfc.txt" "$TMP/vendor.raw" >/dev/null 2>&1 && [ -s "$TMP/vfc.txt" ]; then
+        if ! grep -qF "health@2\.1-service-samsung" "$TMP/vfc.txt"; then
+            printf '%s\n' "$HEALTH_RULE" >> "$TMP/vfc.txt"
+            debugfs -w -R "rm $VFC" "$TMP/vendor.raw" >/dev/null 2>&1 || true
+            debugfs -w -R "write $TMP/vfc.txt $VFC" "$TMP/vendor.raw" >/dev/null 2>&1 || true
+            debugfs -w -R "sif $VFC mode 0100644" "$TMP/vendor.raw" >/dev/null 2>&1 || true
+            set_selinux_label "$VFC" "u:object_r:vendor_configs_file:s0"
+            echo "  + $VFC (health rule appended)"
+        else
+            echo "  = $VFC already has the rule"
+        fi
+    else
+        echo "  ! could not read $VFC"
+    fi
+fi
+
 img2simg "$TMP/vendor.raw" "$IMG"
 echo "rewrote $IMG"
