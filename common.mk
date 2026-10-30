@@ -66,12 +66,13 @@ PRODUCT_COPY_FILES += \
 PRODUCT_PACKAGES += \
     init.qcom.rc
 
-# Display/GPU bring-up configs (hand-written, not in the stock dump)
+# Display/GPU bring-up configs (hand-written, not in the stock dump).
+# NOTE: the display VINTF fragments (composer-qti-display, mapper-impl-qti-display,
+# allocator-service) must NOT be installed from here — they already ship with
+# hardware/qcom-caf/sm8150/display (module vintf_fragments / `required`), and a
+# second copy makes kati fail with "overriding commands for target".
 PRODUCT_COPY_FILES += \
-    $(COMMON_PATH)/configs/vulkan/icd.d/adreno_icd.aarch64.json:$(TARGET_COPY_OUT_VENDOR)/etc/vulkan/icd.d/adreno_icd.aarch64.json \
-    $(COMMON_PATH)/configs/vintf/android.hardware.graphics.composer-qti-display.xml:$(TARGET_COPY_OUT_VENDOR)/etc/vintf/manifest/android.hardware.graphics.composer-qti-display.xml \
-    $(COMMON_PATH)/configs/vintf/android.hardware.graphics.mapper-impl-qti-display.xml:$(TARGET_COPY_OUT_VENDOR)/etc/vintf/manifest/android.hardware.graphics.mapper-impl-qti-display.xml \
-    $(COMMON_PATH)/configs/vintf/vendor.qti.hardware.display.allocator-service.xml:$(TARGET_COPY_OUT_VENDOR)/etc/vintf/manifest/vendor.qti.hardware.display.allocator-service.xml
+    $(COMMON_PATH)/configs/vulkan/icd.d/adreno_icd.aarch64.json:$(TARGET_COPY_OUT_VENDOR)/etc/vulkan/icd.d/adreno_icd.aarch64.json
 
 # Wi-Fi hotspot (AOSP AIDL hostapd; Samsung ships no hostapd HAL service blob,
 # only a stale HIDL manifest fragment. Without this the AP fails with
@@ -163,12 +164,50 @@ PRODUCT_PACKAGES += \
 PRODUCT_ENFORCE_VINTF_MANIFEST_OVERRIDE := false
 
 # Libraries the Samsung TEE HALs link against (pruned from the blob list as
-# "platform libs"); fix_vendor_mountpoints.sh copies them into the vendor image.
+# "platform libs"); installed into /vendor/lib64 as vendor_available variants.
 PRODUCT_PACKAGES += \
     android.hardware.keymaster@4.1 \
     android.hidl.memory@1.0 \
     android.hidl.memory.token@1.0 \
     libhidlmemory
+
+# A16 removed VNDK, so vendor processes can no longer resolve libraries from
+# /system/lib64 (vendor namespace only searches /odm/lib*, /vendor/lib* and
+# /vendor/lib*/hw|egl). Stock vendor HAL blobs link AOSP HIDL interface
+# libraries that live in /system/lib64, and with DISABLE_DEPS the prebuilt
+# binaries do not declare those dependencies, so soong never builds the vendor
+# variants and 19 HAL services die in the linker ("CANNOT LINK EXECUTABLE ...
+# library not found"), including health@2.1 whose absence blocks
+# BatteryService.onStart on the system_server main thread (boot 2026-10-30).
+# hidl_interface modules are vendor_available, so adding them to
+# PRODUCT_PACKAGES installs the vendor variant (verified with
+# android.hidl.memory@1.0, which lands in vendor/lib64 the same way).
+PRODUCT_PACKAGES += \
+    android.hardware.camera.common@1.0 \
+    android.hardware.drm@1.0 \
+    android.hardware.drm@1.3 \
+    android.hardware.gnss@1.0 \
+    android.hardware.health@2.1 \
+    android.hardware.neuralnetworks@1.0 \
+    android.hardware.usb@1.0 \
+    android.hidl.allocator@1.0 \
+    libcamera_metadata \
+    libprocessgroup
+
+# Register the device tree soong namespace: device/samsung/sm8150-common
+# Android.bp provides the libqti-perfd-client prebuilt module below.
+PRODUCT_SOONG_NAMESPACES += device/samsung/sm8150-common
+
+# Stock vendor library with no AOSP module and nothing else in the build graph
+# providing it (QTI perfd client stub, pruned from the blob list). Installed as
+# the cc_prebuilt_library_shared module in Android.bp because kati rejects ELF
+# files in PRODUCT_COPY_FILES.
+# libjson (external/json-c), libwifi-hal (frameworks/opt/net/wifi), librmnetctl
+# (vendor/qcom/opensource/dataservices) and vendor.qti.hardware.perf@2.0
+# (vendor/qcom/opensource/interfaces) are already installed from source — a
+# second copy here makes kati fail with "overriding commands for target".
+PRODUCT_PACKAGES += \
+    libqti-perfd-client_prebuilt
 
 # Replace stock vendor fstab with ours (no /system or /odm entry: /system is the
 # SAR rootfs and there is no odm partition)

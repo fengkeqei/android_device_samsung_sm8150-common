@@ -4,5 +4,9 @@
 # 不能直接 allow tee vendor_default_prop:property_service set，因为 vendor 策略有
 #   neverallow base_typeattr_233 vendor_default_prop (property_service (set))
 # 故给该属性独立类型 qseecomd_prop（见 property_contexts），再授权。
-type qseecomd_prop, property_type;
+#
+# A16 要求 property_type 显式归 owner（system/product/vendor），裸 property_type
+# 会触发 property.te 的 sysprop-owner neverallow（init/dumpstate 的 property_type
+# 通配 allow 一并违反）。用官方宏声明 vendor 内部属性。
+vendor_internal_prop(qseecomd_prop)
 allow tee qseecomd_prop:property_service set;

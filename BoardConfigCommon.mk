@@ -40,7 +40,16 @@ BOARD_CHARGER_ENABLE_SUSPEND := true
 # /vendor/etc/vintf/manifest/ (from the blob dump and source HAL modules).
 # The device manifest is intentionally minimal; validation is skipped to
 # avoid duplicate-requirement conflicts with those fragments.
-DEVICE_MANIFEST_FILE := $(COMMON_PATH)/manifest.xml
+#
+# manifest_proven.xml is the /vendor/etc/vintf/manifest.xml of the vendor image
+# that boots clean (md5 ad433188...; stock Samsung shell + the declarations
+# Round 51-67 merged in). The LOS-merged manifest.xml additionally declares
+# audio@6.0, keymaster@4.0, memtrack@1.0, ... which the same fragments already
+# declare, and libvintf rejects the whole device manifest on the first
+# duplicate fqname ("NULL VINTF MANIFEST!: device") -> every HAL denied at
+# registration -> SystemServer FATAL (Round 51/67 class of bug). Do not point
+# DEVICE_MANIFEST_FILE back at manifest.xml.
+DEVICE_MANIFEST_FILE := $(COMMON_PATH)/manifest_proven.xml
 DEVICE_MANIFEST_SKIP_VALIDATION := true
 DEVICE_FRAMEWORK_COMPATIBILITY_MATRIX_FILE := $(COMMON_PATH)/device_framework_matrix.xml
 

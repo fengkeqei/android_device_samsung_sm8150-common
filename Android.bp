@@ -1,2 +1,23 @@
 soong_namespace {
 }
+
+// QTI perfd client stub from the stock firmware. No AOSP module provides it in
+// A16 and the prebuilt HAL binaries (DISABLE_DEPS) do not declare it, so the
+// soong dependency graph never pulls it in. kati rejects ELF files in
+// PRODUCT_COPY_FILES, hence a cc_prebuilt_library_shared module instead.
+cc_prebuilt_library_shared {
+    name: "libqti-perfd-client_prebuilt",
+    stem: "libqti-perfd-client",
+    owner: "samsung",
+    strip: {
+        none: true,
+    },
+    target: {
+        android_arm64: {
+            srcs: ["vendor_libs/lib64/libqti-perfd-client.so"],
+        },
+    },
+    compile_multilib: "64",
+    check_elf_files: false,
+    soc_specific: true,
+}
