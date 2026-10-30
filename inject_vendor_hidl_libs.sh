@@ -111,6 +111,7 @@ android.hardware.wifi@1.3.so
 android.hardware.wifi@1.4.so
 android.hidl.allocator@1.0.so
 android.hidl.memory@1.0.so
+android.hidl.memory.token@1.0.so
 libhidlmemory.so
 libcamera_metadata.so
 libprocessgroup.so
