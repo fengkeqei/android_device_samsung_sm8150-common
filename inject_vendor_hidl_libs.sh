@@ -209,5 +209,92 @@ if debugfs -R "stat $HEALTH_SVC" "$TMP/vendor.raw" 2>/dev/null | grep -q Inode:;
     fi
 fi
 
+# A16 bring-up: /data must be mounted before class_start main or vold blocks
+# forever on android.security.maintenance (keystore2 cannot initialise without
+# /data) and boot never completes. init.target.rc imports
+# init.samsung.rc + init.${ro.product.vendor.device}.rc, but never
+# init.qcom.rc -- so the `on late-fs: mount_all --late` that used to live in
+# init.qcom.rc was never executed (last_kmsg 2026-10-30 shows only
+# "mount_all ... --early" and /data never mounts). Patch the imported file.
+echo "patching init.beyond1q.rc for late-fs mount:"
+B1Q=/etc/init/hw/init.beyond1q.rc
+if debugfs -R "cat $B1Q" "$TMP/vendor.raw" 2>/dev/null > "$TMP/b1q.rc" && [ -s "$TMP/b1q.rc" ]; then
+    if ! grep -q "mount_all /vendor/etc/fstab.qcom --late" "$TMP/b1q.rc"; then
+        cat >> "$TMP/b1q.rc" <<'RCEOF'
+
+# A16 bring-up: /data must be mounted before class_start main, or vold blocks
+# forever on android.security.maintenance (keystore2 needs /data). This file is
+# imported by init.target.rc; init.qcom.rc is not.
+on late-fs
+    mount_all /vendor/etc/fstab.qcom --late
+RCEOF
+        debugfs -w -R "rm $B1Q" "$TMP/vendor.raw" >/dev/null 2>&1 || true
+        debugfs -w -R "write $TMP/b1q.rc $B1Q" "$TMP/vendor.raw" >/dev/null 2>&1 || true
+        debugfs -w -R "sif $B1Q mode 0100644" "$TMP/vendor.raw" >/dev/null 2>&1 || true
+        set_selinux_label "$B1Q" "u:object_r:vendor_configs_file:s0"
+        echo "  + $B1Q (late-fs mount_all appended)"
+    else
+        echo "  = $B1Q already patched"
+    fi
+else
+    echo "  ! could not read $B1Q"
+fi
+
+# qseecom-service (the HIDL wrapper around the QSEE TEE) exits 1 within ~6 ms
+# every 5 s, so vaultkeeperd never gets a working TEE and reports
+# "There is no VK ID". Its interface library and the QSEE client API are both
+# labelled vendor_file, and a vendor HAL process cannot load vendor_file-typed
+# libraries (same reason the 19 HAL services failed to link). Re-label them
+# same_process_hal_file, matching libhidlbase and the rest of the HAL stack.
+echo "relabelling qseecom HAL libraries:"
+for lib in vendor.qti.hardware.qseecom@1.0.so libQSEEComAPI.so libQSEEComAPI_vendor.so; do
+    for d in lib64 lib; do
+        p="/$d/$lib"
+        if debugfs -R "stat $p" "$TMP/vendor.raw" 2>/dev/null | grep -q Inode:; then
+            set_selinux_label "$p" "u:object_r:same_process_hal_file:s0"
+            echo "  ~ $p"
+        fi
+    done
+done
+
+# keydata/keyrefuge hold the vaultkeeper VK ID. Their fstab lines carried
+# `check`, and e2fsck refuses to skip ("3044 days without being checked") --
+# combined with `errors=panic` the mount fails, and `nofail` then swallows it
+# silently. Without /keydata mounted, vaultkeeperd reports "There is no VK ID",
+# its service preparation fails, vold blocks forever on
+# android.security.maintenance, and boot never completes (last_kmsg 2026-10-30).
+# Drop `check` (and the panic-on-error policy) so the partitions simply mount.
+echo "patching fstab.qcom for keydata/keyrefuge:"
+FSTAB=/etc/fstab.qcom
+if debugfs -R "cat $FSTAB" "$TMP/vendor.raw" 2>/dev/null > "$TMP/fstab" && [ -s "$TMP/fstab" ]; then
+    changed=0
+    for part in keydata keyrefuge; do
+        if grep -q "by-name/$part" "$TMP/fstab"; then
+            # Drop the flags on the line(s) whose second field is the mount point
+            # for this partition (sed range by address is fragile here).
+            awk -v part="$part" '
+                $1 ~ ("by-name/" part) {
+                    gsub(/,check/, ""); gsub(/,errors=panic/, "");
+                    gsub(/errors=panic,/, "");
+                    found=1
+                }
+                { print }
+                END { exit found ? 0 : 1 }
+            ' "$TMP/fstab" > "$TMP/fstab.new" && mv "$TMP/fstab.new" "$TMP/fstab" && changed=1
+        fi
+    done
+    if [ "$changed" = 1 ]; then
+        debugfs -w -R "rm $FSTAB" "$TMP/vendor.raw" >/dev/null 2>&1 || true
+        debugfs -w -R "write $TMP/fstab $FSTAB" "$TMP/vendor.raw" >/dev/null 2>&1 || true
+        debugfs -w -R "sif $FSTAB mode 0100644" "$TMP/vendor.raw" >/dev/null 2>&1 || true
+        set_selinux_label "$FSTAB" "u:object_r:vendor_configs_file:s0"
+        echo "  + $FSTAB (keydata/keyrefuge: dropped check + errors=panic)"
+    else
+        echo "  = $FSTAB already patched"
+    fi
+else
+    echo "  ! could not read $FSTAB"
+fi
+
 img2simg "$TMP/vendor.raw" "$IMG"
 echo "rewrote $IMG"
