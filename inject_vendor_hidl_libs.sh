@@ -18,6 +18,7 @@ IMG=${1:-out/target/product/beyond1q/vendor.img}
 STAGE=out/target/product/beyond1q/vendor
 SYSSTAGE=out/target/product/beyond1q/system
 STOCK=device/samsung/sm8150-common/vendor_libs
+PROP=vendor/samsung/sm8150-common/proprietary/vendor
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 
@@ -53,6 +54,8 @@ resolve_and_install() {
         install_lib "$STAGE/lib64/$lib" "/lib64/$lib"; got=1
     elif [ -f "$SYSSTAGE/lib64/$lib" ]; then
         install_lib "$SYSSTAGE/lib64/$lib" "/lib64/$lib"; got=1
+    elif [ -f "$PROP/lib64/$lib" ]; then
+        install_lib "$PROP/lib64/$lib" "/lib64/$lib"; got=1
     elif [ -f "$STOCK/lib64/$lib" ]; then
         install_lib "$STOCK/lib64/$lib" "/lib64/$lib"; got=1
     fi
@@ -60,6 +63,8 @@ resolve_and_install() {
         install_lib "$STAGE/lib/$lib" "/lib/$lib"; got=1
     elif [ -f "$SYSSTAGE/lib/$lib" ]; then
         install_lib "$SYSSTAGE/lib/$lib" "/lib/$lib"; got=1
+    elif [ -f "$PROP/lib/$lib" ]; then
+        install_lib "$PROP/lib/$lib" "/lib/$lib"; got=1
     elif [ -f "$STOCK/lib/$lib" ]; then
         install_lib "$STOCK/lib/$lib" "/lib/$lib"; got=1
     fi
