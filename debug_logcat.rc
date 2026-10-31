@@ -1,12 +1,10 @@
-# Early persistent logcat + hwcomposer diagnostic with linker trace.
+# Early persistent logcat so boot failures can be read from recovery.
 on post-fs-data
     mkdir /data/misc/logd 0770 logd log
     start logcatd
-    start capture_composer
 
-service capture_composer /system/bin/sh -c "LD_DEBUG=libs /vendor/bin/hw/android.hardware.graphics.composer@2.1-service 2>&1; echo C21_EXIT=\$?; LD_DEBUG=libs /vendor/bin/hw/android.hardware.graphics.composer@2.4-service 2>&1; echo C24_EXIT=\$?"
-    user root
-    group root
-    stdio_to_kmsg
-    setenv LD_DEBUG libs
-    oneshot
+# NOTE: the old "capture_composer" service that launched the composer with
+# LD_DEBUG was removed: its malformed shell syntax (a stray '?' from the
+# deprecation warning) and its post-fs-data start COMPETED with the real
+# hwcomposer-2-4 service, corrupting hwcomposer's startup (v25 boot:
+# "capture_composer ... exited with status 6").

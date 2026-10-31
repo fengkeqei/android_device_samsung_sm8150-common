@@ -218,15 +218,6 @@ PRODUCT_COPY_FILES += \
 PRODUCT_COPY_FILES += \
     $(COMMON_PATH)/ueventd.rc:$(TARGET_COPY_OUT_VENDOR)/ueventd.rc
 
-# Temporary DRM diagnostics (remove once display boots)
-PRODUCT_COPY_FILES += \
-    $(COMMON_PATH)/debug_dri.rc:$(TARGET_COPY_OUT_VENDOR)/etc/init/debug_dri.rc
-
-# Enable the TSP FOD area so touches in the sensor region reach qbt2000
-# (see debug_fod.rc; reference tree: init.udfps.rc behind TARGET_HAVE_FOD)
-PRODUCT_COPY_FILES += \
-    $(COMMON_PATH)/debug_fod.rc:$(TARGET_COPY_OUT_VENDOR)/etc/init/debug_fod.rc
-
 # Start logcatd early so boot failures can be read from recovery
 PRODUCT_COPY_FILES += \
     $(COMMON_PATH)/debug_logcat.rc:$(TARGET_COPY_OUT_VENDOR)/etc/init/debug_logcat.rc
