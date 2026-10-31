@@ -165,6 +165,22 @@ libdisplayconfig.qti.so
 libqservice.so
 libdisplaydebug.so
 libsdmutils.so
+# Round-73: display core stack (hwc/gralloc deps missed by the earlier audit
+# because it scanned /lib64 only, not the /lib64/hw module's DT_NEEDED)
+libsdmcore.so
+libgrallocutils.so
+libgralloccore.so
+libgpu_tonemapper.so
+# Round-73: remaining boot-relevant gaps seen in boot logs
+libavservices_minijail.so
+libjsoncpp.so
+android.hardware.gnss.measurement_corrections@1.0.so
+android.system.keystore2-V1-ndk.so
+android.hardware.radio@1.5.so
+android.hardware.radio@1.6.so
+android.hardware.camera.provider@2.5.so
+android.hardware.camera.provider@2.6.so
+android.frameworks.sensorservice@1.0.so
 android.hardware.radio.deprecated@1.0.so
 android.hardware.radio@1.4.so
 vendor.samsung.hardware.radio@2.2.so
