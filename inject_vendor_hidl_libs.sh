@@ -204,6 +204,9 @@ vendor.display.config@1.11.so
 # libdrmutils dlopen()s. Without it HWInfoDRM::Init leaves drm_mgr_intf_
 # null and every composer (2.1 and 2.4) SIGSEGVs in GetSystemInfo.
 libsdedrm.so
+# Round-79: memtrack HAL (system_server startMemtrackProxyService blocks on it)
+android.hardware.memtrack@1.0-impl.so
+memtrack.msmnile.so
 # Round-75: libsdmcore's deps (recursive closure of the display stack)
 libdrmutils.so
 libdisplaycolor.so
