@@ -181,6 +181,18 @@ android.hardware.radio@1.6.so
 android.hardware.camera.provider@2.5.so
 android.hardware.camera.provider@2.6.so
 android.frameworks.sensorservice@1.0.so
+# Round-74: hwcomposer.msmnile.so (A16 qcom display HAL) full dependency set
+android.hardware.graphics.composer@2.2.so
+android.hardware.graphics.composer@2.3.so
+android.hardware.graphics.composer@2.4.so
+vendor.display.config@1.4.so
+vendor.display.config@1.5.so
+vendor.display.config@1.6.so
+vendor.display.config@1.7.so
+vendor.display.config@1.8.so
+vendor.display.config@1.9.so
+vendor.display.config@1.10.so
+vendor.display.config@1.11.so
 android.hardware.radio.deprecated@1.0.so
 android.hardware.radio@1.4.so
 vendor.samsung.hardware.radio@2.2.so
