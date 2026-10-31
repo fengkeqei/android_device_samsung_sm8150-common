@@ -198,10 +198,19 @@ vendor.display.config@1.8.so
 vendor.display.config@1.9.so
 vendor.display.config@1.10.so
 vendor.display.config@1.11.so
+# Round-77: libsdedrm.so — the actual DRMManager implementation that
+# libdrmutils dlopen()s. Without it HWInfoDRM::Init leaves drm_mgr_intf_
+# null and every composer (2.1 and 2.4) SIGSEGVs in GetSystemInfo.
+libsdedrm.so
 # Round-75: libsdmcore's deps (recursive closure of the display stack)
 libdrmutils.so
 libdisplaycolor.so
 libsdmextension.so
+# Round-76: Samsung 2.4 composer (the stock hwcomposer service)
+libhwc2on1adapter.so
+libhwc2onfbadapter.so
+android.hardware.graphics.composer@2.1-resources.so
+android.hardware.graphics.composer@2.2-resources.so
 android.hardware.radio.deprecated@1.0.so
 android.hardware.radio@1.4.so
 vendor.samsung.hardware.radio@2.2.so
