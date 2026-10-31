@@ -12,4 +12,6 @@ allow vaultkeeperd kmsg_device:chr_file { open write getattr };
 #   vaultkeeper: qseecomd is not ready (vendor.sys.qseecomd.enable:true)
 # forever -- and vold then blocks on android.security.maintenance because
 # keystore2 cannot come up without the TEE (boot 2026-10-30, 392 s).
-allow vaultkeeperd qseecomd_prop:file r_file_perms;
+# get_prop() expands to { getattr open read map }; r_file_perms would add
+# ioctl/lock, which property.te forbids on every property_type file.
+get_prop(vaultkeeperd, qseecomd_prop)
