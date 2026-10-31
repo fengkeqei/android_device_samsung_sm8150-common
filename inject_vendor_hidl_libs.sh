@@ -127,6 +127,76 @@ libqti-perfd-client.so
 vendor.qti.hardware.perf@2.0.so
 vendor.qti.hardware.perf@2.1.so
 vendor.qti.hardware.perf@2.2.so
+android.hardware.bluetooth@1.0.so
+libcodec2_hidl@1.0.so
+libcodec2_soft_common.so
+libcodec2.so
+libcodec2_vndk.so
+libsfplugin_ccodec_utils.so
+android.hardware.graphics.bufferqueue@1.0.so
+android.hardware.graphics.bufferqueue@2.0.so
+android.hardware.media@1.0.so
+android.hardware.media.bufferpool@2.0.so
+android.hardware.media.c2@1.0.so
+android.hardware.media.omx@1.0.so
+libstagefright_bufferpool@2.0.1.so
+libstagefright_bufferqueue_helper.so
+android.frameworks.sensorservice@1.0.so
+android.hardware.sensors@1.0.so
+libdrm.so
+libgralloc.qti.so
+liblocation_api.so
+libloc_core.so
+libOmxCore.so
+libOpenCL.so
+libqdMetaData.so
+libqdutils.so
+libsensorndkbridge.so
+libstagefright_flacdec.so
+libsynaFpSensorTestNwd.so
+libtinyxml.so
+libxml.so
+vendor.qti.hardware.bluetooth_audio@2.0.so
+vendor.qti.hardware.display.mapper@4.0.so
+vendor.qti.hardware.display.mapperextensions@1.0.so
+vendor.qti.hardware.display.mapperextensions@1.1.so
+libplatformconfig.so
+libdisplayconfig.qti.so
+libqservice.so
+libdisplaydebug.so
+libsdmutils.so
+android.hardware.radio.deprecated@1.0.so
+android.hardware.radio@1.4.so
+vendor.samsung.hardware.radio@2.2.so
+android.hardware.sensors@2.0-ScopedWakelock.so
+libstagefright_softomx.so
+vendor.nxp.nxpnfc@1.0.so
+android.hardware.automotive.vehicle@2.0.so
+android.hardware.radio@1.2.so
+android.hardware.radio@1.3.so
+vendor.display.config@2.0.so
+android.hardware.radio.config@1.0.so
+android.hardware.radio.config@1.1.so
+android.hardware.radio.config@1.2.so
+vendor.samsung.hardware.radio@2.0.so
+vendor.samsung.hardware.radio@2.1.so
+vendor.qti.hardware.display.mapper@3.0.so
+vendor.qti.hardware.display.mapper@1.1.so
+android.hardware.biometrics.fingerprint@2.1.so
+camera.device@1.0-impl.so
+camera.device@3.2-impl.so
+camera.device@3.3-impl.so
+camera.device@3.4-impl.so
+camera.device@3.5-impl.so
+libcld80211.so
+libpasn.so
+vendor.qti.hardware.camera.device@1.0.so
+vendor.qti.hardware.display.mapper@1.0.so
+libkeystore-engine-wifi-hidl.so
+android.hardware.wifi.hostapd@1.0.so
+android.hardware.wifi.hostapd@1.1.so
+android.hardware.wifi.hostapd@1.2.so
+android.hardware.wifi.supplicant@1.0.so
 libsync.so
 libwvhidl.so
 android.hardware.vibrator@1.0.so
@@ -270,6 +340,26 @@ if debugfs -R "cat $QSEE_RC" "$TMP/vendor.raw" 2>/dev/null > "$TMP/qsee.rc" && [
         echo "  + $QSEE_RC (stdio_to_kmsg)"
     fi
 fi
+
+# ---- /vendor/firmware_mnt mount point --------------------------------------
+# apnhlos holds every firmware blob (adsp/modem/cdsp/slpi/ipa_fws/gpu). The
+# vendor partition is mounted read-only, so the mount point must exist inside
+# the image. Without it firmware_class cannot find anything and the IPA driver
+# panics (ipa3_load_ipa_fw -> ipa_assert -> BUG()), which is what produced the
+# boot loop after the bpfloader bypass.
+# (soong fsgen rejects these as PRODUCT_COPY_FILES destinations: "Path is
+# outside directory", hence creating them here.)
+echo "creating vendor firmware mount points:"
+for dir in firmware_mnt firmware-modem dsp; do
+    if ! debugfs -R "stat /$dir" "$TMP/vendor.raw" 2>/dev/null | grep -q Inode:; then
+        debugfs -w -R "mkdir /$dir" "$TMP/vendor.raw" >/dev/null 2>&1 || true
+        debugfs -w -R "sif /$dir mode 040755" "$TMP/vendor.raw" >/dev/null 2>&1 || true
+        debugfs -w -R "sif /$dir uid 0" "$TMP/vendor.raw" >/dev/null 2>&1 || true
+        debugfs -w -R "sif /$dir gid 0" "$TMP/vendor.raw" >/dev/null 2>&1 || true
+        set_selinux_label "/$dir" "u:object_r:vendor_file:s0"
+        echo "  + /$dir"
+    fi
+done
 
 # ---- /data + keydata mounting ----------------------------------------------
 # keydata/keyrefuge hold the vaultkeeper VK ID. Their fstab lines carried
