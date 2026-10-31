@@ -165,6 +165,8 @@ vendor.qti.hardware.bluetooth_audio@2.0.so
 vendor.qti.hardware.display.mapper@4.0.so
 vendor.qti.hardware.display.mapperextensions@1.0.so
 vendor.qti.hardware.display.mapperextensions@1.1.so
+# Round-78: eglSubDriverAndroid.so (Samsung EGL sub-driver) dep — was missing
+vendor.qti.hardware.display.mapper@2.0.so
 libplatformconfig.so
 libdisplayconfig.qti.so
 libqservice.so
