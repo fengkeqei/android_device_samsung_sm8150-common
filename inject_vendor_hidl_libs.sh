@@ -193,6 +193,10 @@ vendor.display.config@1.8.so
 vendor.display.config@1.9.so
 vendor.display.config@1.10.so
 vendor.display.config@1.11.so
+# Round-75: libsdmcore's deps (recursive closure of the display stack)
+libdrmutils.so
+libdisplaycolor.so
+libsdmextension.so
 android.hardware.radio.deprecated@1.0.so
 android.hardware.radio@1.4.so
 vendor.samsung.hardware.radio@2.2.so
