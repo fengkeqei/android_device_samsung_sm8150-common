@@ -425,17 +425,34 @@ if [ -f "$ALLOC_BIN" ]; then
 import sys
 p = sys.argv[1]
 xml = open(p).read()
+# mapper@4.0 must NOT be declared: with transport=hwbinder every GPU client
+# waits forever on a service nobody provides (the R allocator service only
+# serves allocator/IQtiAllocator). Undeclared (EMPTY transport) libhidl
+# fast-fails and falls back to legacy gralloc0 (v37, see BUILD_NOTES).
+# allocator@4.0 IS declared: the QTI allocator service serves it.
+mapper_block = '''    <hal format="hidl">
+        <name>android.hardware.graphics.mapper</name>
+        <transport>hwbinder</transport>
+        <fqname>@4.0::IMapper/default</fqname>
+    </hal>
+'''
 block = '''    <hal format="hidl">
         <name>android.hardware.graphics.allocator</name>
         <transport>hwbinder</transport>
         <fqname>@4.0::IAllocator/default</fqname>
     </hal>
 '''
+changed = False
+if mapper_block in xml:
+    xml = xml.replace(mapper_block, '', 1)
+    print("  ~ main manifest: mapper@4.0 hwbinder entry removed (legacy fast-fail path)")
+    changed = True
 if block in xml:
-    open(p, 'w').write(xml.replace(block, '', 1))
+    xml = xml.replace(block, '', 1)
     print("  ~ main manifest: duplicate allocator@4.0 entry removed (fragment covers it)")
-else:
-    print("  = main manifest has no duplicate allocator@4.0 entry")
+    changed = True
+if changed:
+    open(p, 'w').write(xml)
 PYEOF
         debugfs -w -R "rm /etc/vintf/manifest.xml" "$TMP/vendor.raw" >/dev/null 2>&1 || true
         debugfs -w -R "write $TMP/vintf.xml /etc/vintf/manifest.xml" "$TMP/vendor.raw" >/dev/null 2>&1
