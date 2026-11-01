@@ -214,7 +214,13 @@ libdrmutils.so
 libdisplaycolor.so
 libsdmextension.so
 # Round-76: Samsung 2.4 composer (the stock hwcomposer service)
-libhwc2on1adapter.so
+# Round-83: hwcomposer.msmnile.so (Samsung hw module) hard-links the
+# composer@2.2/2.3/2.4 proxies — dlopen of the hw module fails without them
+# and the 2.1 service exits 1 (v42 over-deleted them; the pre-injection
+# image carried all three).
+android.hardware.graphics.composer@2.2.so
+android.hardware.graphics.composer@2.3.so
+android.hardware.graphics.composer@2.4.so
 libhwc2onfbadapter.so
 android.hardware.graphics.composer@2.1-resources.so
 android.hardware.radio.deprecated@1.0.so
