@@ -193,9 +193,6 @@ android.hardware.camera.provider@2.5.so
 android.hardware.camera.provider@2.6.so
 android.frameworks.sensorservice@1.0.so
 # Round-74: hwcomposer.msmnile.so (A16 qcom display HAL) full dependency set
-android.hardware.graphics.composer@2.2.so
-android.hardware.graphics.composer@2.3.so
-android.hardware.graphics.composer@2.4.so
 vendor.display.config@1.4.so
 vendor.display.config@1.5.so
 vendor.display.config@1.6.so
@@ -220,7 +217,6 @@ libsdmextension.so
 libhwc2on1adapter.so
 libhwc2onfbadapter.so
 android.hardware.graphics.composer@2.1-resources.so
-android.hardware.graphics.composer@2.2-resources.so
 android.hardware.radio.deprecated@1.0.so
 android.hardware.radio@1.4.so
 vendor.samsung.hardware.radio@2.2.so
@@ -386,45 +382,6 @@ if debugfs -R "dump $VFC_Q $TMP/vfc_q.txt" "$TMP/vendor.raw" >/dev/null 2>&1 && 
     fi
 fi
 
-# Round-81: composer -resources libs must pair with the Samsung composer
-# blobs (HWC2 resource-cache struct layout is not a stable ABI). resolve_
-# and_install prefers the soong build, which A16's composer@2.1-resources
-# wins — the Samsung composer@2.4-service then aborts with
-# "__next_prime overflow" on its first real transaction (v38).
-echo "pairing composer -resources libs with the Samsung blobs:"
-# Round-81: the whole composer service chain must be Samsung-built — the
-# HWC2 adapter and the composer proxy libs carry HWC2 dispatch tables and
-# resource-cache layouts that are not stable across soong builds. The A16
-# variants made the Samsung composer@2.4-service fail composer-resources
-# creation (v38/v39).
-for lib in libhwc2on1adapter.so libhwc2onfbadapter.so \
-           android.hardware.graphics.composer@2.2.so \
-           android.hardware.graphics.composer@2.3.so \
-           android.hardware.graphics.composer@2.4.so; do
-    for src in "$PROP/lib64/$lib" "$STOCK/lib64/$lib"; do
-        if [ -f "$src" ]; then
-            debugfs -w -R "rm /lib64/$lib" "$TMP/vendor.raw" >/dev/null 2>&1 || true
-            debugfs -w -R "write $src /lib64/$lib" "$TMP/vendor.raw" >/dev/null 2>&1
-            debugfs -w -R "sif /lib64/$lib mode 0100644" "$TMP/vendor.raw" >/dev/null 2>&1
-            debugfs -w -R "sif /lib64/$lib uid 0" "$TMP/vendor.raw" >/dev/null 2>&1
-            debugfs -w -R "sif /lib64/$lib gid 0" "$TMP/vendor.raw" >/dev/null 2>&1
-            set_selinux_label "/lib64/$lib" "u:object_r:same_process_hal_file:s0"
-            echo "  + /lib64/$lib (Samsung: $src)"
-            break
-        fi
-    done
-done
-for lib in android.hardware.graphics.composer@2.1-resources.so android.hardware.graphics.composer@2.2-resources.so; do
-    if [ -f "$PROP/lib64/$lib" ]; then
-        debugfs -w -R "rm /lib64/$lib" "$TMP/vendor.raw" >/dev/null 2>&1 || true
-        debugfs -w -R "write $PROP/lib64/$lib /lib64/$lib" "$TMP/vendor.raw" >/dev/null 2>&1
-        debugfs -w -R "sif /lib64/$lib mode 0100644" "$TMP/vendor.raw" >/dev/null 2>&1
-        debugfs -w -R "sif /lib64/$lib uid 0" "$TMP/vendor.raw" >/dev/null 2>&1
-        debugfs -w -R "sif /lib64/$lib gid 0" "$TMP/vendor.raw" >/dev/null 2>&1
-        set_selinux_label "/lib64/$lib" "u:object_r:same_process_hal_file:s0"
-        echo "  + /lib64/$lib (Samsung blob)"
-    fi
-done
 
 # Round-82: the stock Samsung composer@2.1-service rc must be present and the
 # 2.4 wrapper rc must be gone. During bring-up the 2.1 rc was removed and an
