@@ -426,7 +426,23 @@ for lib in android.hardware.graphics.composer@2.1-resources.so android.hardware.
     fi
 done
 
-# ---- Round-80: QTI allocator service (the mapper@4.0 provider) --------------
+# Round-82: the stock Samsung composer@2.1-service rc must be present and the
+# 2.4 wrapper rc must be gone. During bring-up the 2.1 rc was removed and an
+# experimental 2.4 wrapper took over — but the 2.4 path fails composer
+# resources creation, while A16 SF falls back to IComposer@2.1 exactly like
+# the 29th's working boot (v41).
+echo "restoring stock composer@2.1-service rc:"
+STOCK_RC=$STOCK/rc/android.hardware.graphics.composer@2.1-service.rc
+if [ -f "$STOCK_RC" ]; then
+    debugfs -w -R "rm /etc/init/android.hardware.graphics.composer@2.4-service.rc" "$TMP/vendor.raw" >/dev/null 2>&1 || true
+    debugfs -w -R "rm /etc/init/android.hardware.graphics.composer@2.1-service.rc" "$TMP/vendor.raw" >/dev/null 2>&1 || true
+    debugfs -w -R "write $STOCK_RC /etc/init/android.hardware.graphics.composer@2.1-service.rc" "$TMP/vendor.raw" >/dev/null 2>&1
+    debugfs -w -R "sif /etc/init/android.hardware.graphics.composer@2.1-service.rc mode 0100644" "$TMP/vendor.raw" >/dev/null 2>&1
+    set_selinux_label "/etc/init/android.hardware.graphics.composer@2.1-service.rc" "u:object_r:vendor_configs_file:s0"
+    echo "  + /etc/init/android.hardware.graphics.composer@2.1-service.rc"
+fi
+
+# Round-80: QTI allocator service deps + restored libs (libdisplayqos/libsync
 # SF's eglInitialize (via eglSubDriverAndroid.so) waits forever on
 # android.hardware.graphics.mapper@4.0::IMapper/default. That instance is
 # served by this R-style allocator service; without the binary every GPU
