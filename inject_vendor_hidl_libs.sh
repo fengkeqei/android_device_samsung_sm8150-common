@@ -426,6 +426,35 @@ fi
 # registers — system_server then blocks in BatteryService, v45). The impl's
 # DT_NEEDED "libutils.so" is repointed to the shim, whose own DT_NEEDED
 # restores the real libutils closure. Shim source: vendor_libs/s8shim.c.
+# Round-86: the AOSP AIDL health service. system_server prefers the AIDL
+# IHealth and only falls back to HIDL, so a working AIDL service unblocks
+# BatteryService regardless of the Q-era Samsung HIDL impl's symbol gaps
+# (v45/v46). Built with: m android.hardware.health-service.example
+OUTV=out/target/product/beyond1q/vendor
+if [ -f "$OUTV/bin/hw/android.hardware.health-service.example" ]; then
+    debugfs -w -R "rm /bin/hw/android.hardware.health-service.example" "$TMP/vendor.raw" >/dev/null 2>&1 || true
+    debugfs -w -R "write $OUTV/bin/hw/android.hardware.health-service.example /bin/hw/android.hardware.health-service.example" "$TMP/vendor.raw" >/dev/null 2>&1
+    debugfs -w -R "sif /bin/hw/android.hardware.health-service.example mode 0100750" "$TMP/vendor.raw" >/dev/null 2>&1
+    set_selinux_label "/bin/hw/android.hardware.health-service.example" "u:object_r:hal_health_default_exec:s0"
+    echo "  + /bin/hw/android.hardware.health-service.example"
+    for f in etc/init/android.hardware.health-service.example.rc              etc/vintf/manifest/android.hardware.health-service.example.xml; do
+        dst="/$f"
+        debugfs -w -R "rm $dst" "$TMP/vendor.raw" >/dev/null 2>&1 || true
+        debugfs -w -R "write $OUTV/$f $dst" "$TMP/vendor.raw" >/dev/null 2>&1
+        debugfs -w -R "sif $dst mode 0100644" "$TMP/vendor.raw" >/dev/null 2>&1
+        set_selinux_label "$dst" "u:object_r:vendor_configs_file:s0"
+        echo "  + $dst"
+    done
+    LIB="android.hardware.health-V4-ndk.so"
+    if [ -f "$OUTV/lib64/$LIB" ]; then
+        debugfs -w -R "rm /lib64/$LIB" "$TMP/vendor.raw" >/dev/null 2>&1 || true
+        debugfs -w -R "write $OUTV/lib64/$LIB /lib64/$LIB" "$TMP/vendor.raw" >/dev/null 2>&1
+        debugfs -w -R "sif /lib64/$LIB mode 0100644" "$TMP/vendor.raw" >/dev/null 2>&1
+        set_selinux_label "/lib64/$LIB" "u:object_r:same_process_hal_file:s0"
+        echo "  + /lib64/$LIB"
+    fi
+fi
+
 echo "injecting String8 shim and patching the health impl:"
 if [ -f "$STOCK/lib64/libs8.so" ]; then
     debugfs -w -R "rm /lib64/libs8.so" "$TMP/vendor.raw" >/dev/null 2>&1 || true
