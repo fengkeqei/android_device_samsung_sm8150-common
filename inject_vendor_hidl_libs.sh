@@ -455,6 +455,23 @@ if [ -f "$OUTV/bin/hw/android.hardware.health-service.example" ]; then
     fi
 fi
 
+# Round-87: without a file_contexts rule the boot-time restorecon resets the
+# example service's label to vendor_file and init's exec fails with EACCES
+# ("cannot execv ... Permission denied", v46) — same mechanism as the
+# Samsung health label fix, so append the rule to the image's copy.
+VFC_EX=/etc/selinux/vendor_file_contexts
+EX_RULE='/(vendor|system/vendor)/bin/hw/android\\.hardware\\.health-service\\.example u:object_r:hal_health_default_exec:s0'
+if debugfs -R "cat $VFC_EX" "$TMP/vendor.raw" 2>/dev/null > "$TMP/vfc_ex.txt" && [ -s "$TMP/vfc_ex.txt" ]; then
+    if ! grep -qF "health-service.example" "$TMP/vfc_ex.txt"; then
+        printf '%s\n' "$EX_RULE" >> "$TMP/vfc_ex.txt"
+        debugfs -w -R "rm $VFC_EX" "$TMP/vendor.raw" >/dev/null 2>&1 || true
+        debugfs -w -R "write $TMP/vfc_ex.txt $VFC_EX" "$TMP/vendor.raw" >/dev/null 2>&1
+        debugfs -w -R "sif $VFC_EX mode 0100644" "$TMP/vendor.raw" >/dev/null 2>&1
+        set_selinux_label "$VFC_EX" "u:object_r:vendor_configs_file:s0"
+        echo "  + $VFC_EX (health-service.example rule appended)"
+    fi
+fi
+
 echo "injecting String8 shim and patching the health impl:"
 if [ -f "$STOCK/lib64/libs8.so" ]; then
     debugfs -w -R "rm /lib64/libs8.so" "$TMP/vendor.raw" >/dev/null 2>&1 || true
