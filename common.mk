@@ -222,6 +222,11 @@ PRODUCT_COPY_FILES += \
 PRODUCT_COPY_FILES += \
     $(COMMON_PATH)/debug_logcat.rc:$(TARGET_COPY_OUT_VENDOR)/etc/init/debug_logcat.rc
 
+# Consolidated bring-up fixes (metadata tmpfs, USB gadget for adb, backlight,
+# GPU firmware labels). See BUILD_NOTES.md v113.
+PRODUCT_COPY_FILES += \
+    $(COMMON_PATH)/romfix.rc:$(TARGET_COPY_OUT_VENDOR)/etc/init/romfix.rc
+
 # NOTE: /vendor/{firmware_mnt,firmware-modem,dsp} mount points cannot be created
 # through PRODUCT_COPY_FILES (soong fsgen rejects those destination names), so
 # they are added to the built vendor image by
