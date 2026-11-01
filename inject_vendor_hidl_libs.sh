@@ -420,6 +420,39 @@ fi
 # PRODUCT_ENFORCE_VINTF_MANIFEST an undeclared interface never reaches the
 # passthrough dlopen, so the impl libs AND the manifest fragment are both
 # required (v44). These pair with the allocator service below.
+# Round-85: libs8.so — String8(StaticLinkage) shim for Q-era vendor blobs
+# (the A16 libutils dropped it; android.hardware.health@2.0-impl-2.1-samsung
+# references it, so the health HAL dlopen fails and IHealth/default never
+# registers — system_server then blocks in BatteryService, v45). The impl's
+# DT_NEEDED "libutils.so" is repointed to the shim, whose own DT_NEEDED
+# restores the real libutils closure. Shim source: vendor_libs/s8shim.c.
+echo "injecting String8 shim and patching the health impl:"
+if [ -f "$STOCK/lib64/libs8.so" ]; then
+    debugfs -w -R "rm /lib64/libs8.so" "$TMP/vendor.raw" >/dev/null 2>&1 || true
+    debugfs -w -R "write $STOCK/lib64/libs8.so /lib64/libs8.so" "$TMP/vendor.raw" >/dev/null 2>&1
+    debugfs -w -R "sif /lib64/libs8.so mode 0100644" "$TMP/vendor.raw" >/dev/null 2>&1
+    set_selinux_label "/lib64/libs8.so" "u:object_r:same_process_hal_file:s0"
+    echo "  + /lib64/libs8.so"
+fi
+HIMPL="$PROP/lib64/hw/android.hardware.health@2.0-impl-2.1-samsung.so"
+if [ -f "$HIMPL" ] && command -v python3 >/dev/null; then
+    python3 - "$HIMPL" "$TMP/health_patched.so" <<'PYEOF2'
+import sys
+data = bytearray(open(sys.argv[1], 'rb').read())
+old = b'libutils.so\x00'
+assert data.count(old) == 1, 'unexpected dynstr layout'
+off = data.find(old)
+data[off:off+len(old)] = b'libs8.so\x00\x00\x00\x00'
+open(sys.argv[2], 'wb').write(data)
+print('  ~ health impl DT_NEEDED libutils.so -> libs8.so')
+PYEOF2
+    debugfs -w -R "rm /lib64/hw/android.hardware.health@2.0-impl-2.1-samsung.so" "$TMP/vendor.raw" >/dev/null 2>&1 || true
+    debugfs -w -R "write $TMP/health_patched.so /lib64/hw/android.hardware.health@2.0-impl-2.1-samsung.so" "$TMP/vendor.raw" >/dev/null 2>&1
+    debugfs -w -R "sif /lib64/hw/android.hardware.health@2.0-impl-2.1-samsung.so mode 0100644" "$TMP/vendor.raw" >/dev/null 2>&1
+    set_selinux_label "/lib64/hw/android.hardware.health@2.0-impl-2.1-samsung.so" "u:object_r:same_process_hal_file:s0"
+    echo "  + patched health impl"
+fi
+
 echo "injecting QTI mapper SP-HAL impls:"
 for d in lib64 lib; do
     for v in 3.0 4.0; do
