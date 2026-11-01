@@ -392,6 +392,28 @@ fi
 # wins — the Samsung composer@2.4-service then aborts with
 # "__next_prime overflow" on its first real transaction (v38).
 echo "pairing composer -resources libs with the Samsung blobs:"
+# Round-81: the whole composer service chain must be Samsung-built — the
+# HWC2 adapter and the composer proxy libs carry HWC2 dispatch tables and
+# resource-cache layouts that are not stable across soong builds. The A16
+# variants made the Samsung composer@2.4-service fail composer-resources
+# creation (v38/v39).
+for lib in libhwc2on1adapter.so libhwc2onfbadapter.so \
+           android.hardware.graphics.composer@2.2.so \
+           android.hardware.graphics.composer@2.3.so \
+           android.hardware.graphics.composer@2.4.so; do
+    for src in "$PROP/lib64/$lib" "$STOCK/lib64/$lib"; do
+        if [ -f "$src" ]; then
+            debugfs -w -R "rm /lib64/$lib" "$TMP/vendor.raw" >/dev/null 2>&1 || true
+            debugfs -w -R "write $src /lib64/$lib" "$TMP/vendor.raw" >/dev/null 2>&1
+            debugfs -w -R "sif /lib64/$lib mode 0100644" "$TMP/vendor.raw" >/dev/null 2>&1
+            debugfs -w -R "sif /lib64/$lib uid 0" "$TMP/vendor.raw" >/dev/null 2>&1
+            debugfs -w -R "sif /lib64/$lib gid 0" "$TMP/vendor.raw" >/dev/null 2>&1
+            set_selinux_label "/lib64/$lib" "u:object_r:same_process_hal_file:s0"
+            echo "  + /lib64/$lib (Samsung: $src)"
+            break
+        fi
+    done
+done
 for lib in android.hardware.graphics.composer@2.1-resources.so android.hardware.graphics.composer@2.2-resources.so; do
     if [ -f "$PROP/lib64/$lib" ]; then
         debugfs -w -R "rm /lib64/$lib" "$TMP/vendor.raw" >/dev/null 2>&1 || true
