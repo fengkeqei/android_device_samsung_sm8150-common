@@ -414,6 +414,36 @@ fi
 # missing `interface` lines don't matter. The fragment declares
 # allocator@3.0/4.0 + IQtiAllocator@3.0/4.0; the same @4.0::IAllocator/default
 # entry must then be REMOVED from the main manifest to avoid a duplicate.
+# Round-84: QTI mapper SP-HALs (the R unified-gralloc mapper). libui's
+# GraphicBufferMapper FATALs with "gralloc-mapper is missing" in the
+# composer process unless an IMapper@4.0 is reachable; with
+# PRODUCT_ENFORCE_VINTF_MANIFEST an undeclared interface never reaches the
+# passthrough dlopen, so the impl libs AND the manifest fragment are both
+# required (v44). These pair with the allocator service below.
+echo "injecting QTI mapper SP-HAL impls:"
+for d in lib64 lib; do
+    for v in 3.0 4.0; do
+        src="$PROP/$d/hw/android.hardware.graphics.mapper@$v-impl-qti-display.so"
+        dst="/$d/hw/android.hardware.graphics.mapper@$v-impl-qti-display.so"
+        [ -f "$src" ] || continue
+        debugfs -w -R "rm $dst" "$TMP/vendor.raw" >/dev/null 2>&1 || true
+        debugfs -w -R "write $src $dst" "$TMP/vendor.raw" >/dev/null 2>&1
+        debugfs -w -R "sif $dst mode 0100644" "$TMP/vendor.raw" >/dev/null 2>&1
+        debugfs -w -R "sif $dst uid 0" "$TMP/vendor.raw" >/dev/null 2>&1
+        debugfs -w -R "sif $dst gid 0" "$TMP/vendor.raw" >/dev/null 2>&1
+        set_selinux_label "$dst" "u:object_r:same_process_hal_file:s0"
+        echo "  + $dst"
+    done
+done
+MFRAG=/etc/vintf/manifest/android.hardware.graphics.mapper-impl-qti-display.xml
+if [ -f "$PROP/etc/vintf/manifest/android.hardware.graphics.mapper-impl-qti-display.xml" ]; then
+    debugfs -w -R "rm $MFRAG" "$TMP/vendor.raw" >/dev/null 2>&1 || true
+    debugfs -w -R "write $PROP/etc/vintf/manifest/android.hardware.graphics.mapper-impl-qti-display.xml $MFRAG" "$TMP/vendor.raw" >/dev/null 2>&1
+    debugfs -w -R "sif $MFRAG mode 0100644" "$TMP/vendor.raw" >/dev/null 2>&1
+    set_selinux_label "$MFRAG" "u:object_r:vendor_configs_file:s0"
+    echo "  + $MFRAG"
+fi
+
 echo "injecting QTI allocator service (mapper@4.0 provider):"
 ALLOC_BIN=$PROP/bin/hw/vendor.qti.hardware.display.allocator-service
 if [ -f "$ALLOC_BIN" ]; then
