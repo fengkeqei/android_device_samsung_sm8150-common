@@ -386,6 +386,24 @@ if debugfs -R "dump $VFC_Q $TMP/vfc_q.txt" "$TMP/vendor.raw" >/dev/null 2>&1 && 
     fi
 fi
 
+# Round-81: composer -resources libs must pair with the Samsung composer
+# blobs (HWC2 resource-cache struct layout is not a stable ABI). resolve_
+# and_install prefers the soong build, which A16's composer@2.1-resources
+# wins — the Samsung composer@2.4-service then aborts with
+# "__next_prime overflow" on its first real transaction (v38).
+echo "pairing composer -resources libs with the Samsung blobs:"
+for lib in android.hardware.graphics.composer@2.1-resources.so android.hardware.graphics.composer@2.2-resources.so; do
+    if [ -f "$PROP/lib64/$lib" ]; then
+        debugfs -w -R "rm /lib64/$lib" "$TMP/vendor.raw" >/dev/null 2>&1 || true
+        debugfs -w -R "write $PROP/lib64/$lib /lib64/$lib" "$TMP/vendor.raw" >/dev/null 2>&1
+        debugfs -w -R "sif /lib64/$lib mode 0100644" "$TMP/vendor.raw" >/dev/null 2>&1
+        debugfs -w -R "sif /lib64/$lib uid 0" "$TMP/vendor.raw" >/dev/null 2>&1
+        debugfs -w -R "sif /lib64/$lib gid 0" "$TMP/vendor.raw" >/dev/null 2>&1
+        set_selinux_label "/lib64/$lib" "u:object_r:same_process_hal_file:s0"
+        echo "  + /lib64/$lib (Samsung blob)"
+    fi
+done
+
 # ---- Round-80: QTI allocator service (the mapper@4.0 provider) --------------
 # SF's eglInitialize (via eglSubDriverAndroid.so) waits forever on
 # android.hardware.graphics.mapper@4.0::IMapper/default. That instance is
