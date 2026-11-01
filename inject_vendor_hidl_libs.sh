@@ -23,7 +23,11 @@ TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 
 set_selinux_label() {
-    printf '%s\0' "$2" > "$TMP/lbl.bin"
+    # Trailing extra NUL: debugfs 1.47 ea_set -f drops the last byte of values
+    # >= 51 bytes (v36 round: the 51-byte hal_graphics_allocator_default_exec
+    # context silently became "...:s"). The kernel stops at the first NUL, so
+    # the padding is harmless for short values and protects long ones.
+    printf '%s\0\0' "$2" > "$TMP/lbl.bin"
     debugfs -w -R "ea_set -f $TMP/lbl.bin $1 security.selinux" "$TMP/vendor.raw" >/dev/null 2>&1 || true
 }
 
@@ -251,6 +255,13 @@ android.hardware.wifi.hostapd@1.2.so
 android.hardware.wifi.supplicant@1.0.so
 libsync.so
 libwvhidl.so
+# Round-80: QTI allocator service deps + restored libs (libdisplayqos/libsync
+# were dropped from vendor between the 29th and the injector rewrites;
+# libsdmextension.so hard-links libdisplayqos.so)
+libdisplayqos.so
+libgrallocusage.so
+vendor.qti.hardware.display.allocator@4.0.so
+vendor.qti.hardware.display.allocator@3.0.so
 android.hardware.vibrator@1.0.so
 android.hardware.vibrator@1.1.so
 android.hardware.vibrator@1.2.so
@@ -373,6 +384,66 @@ if debugfs -R "dump $VFC_Q $TMP/vfc_q.txt" "$TMP/vendor.raw" >/dev/null 2>&1 && 
         set_selinux_label "$VFC_Q" "u:object_r:vendor_configs_file:s0"
         echo "  + $VFC_Q (qseecom rule appended)"
     fi
+fi
+
+# ---- Round-80: QTI allocator service (the mapper@4.0 provider) --------------
+# SF's eglInitialize (via eglSubDriverAndroid.so) waits forever on
+# android.hardware.graphics.mapper@4.0::IMapper/default. That instance is
+# served by this R-style allocator service; without the binary every GPU
+# client deadlocks and system_server ANRs on waitForService<ISurfaceComposer>.
+# The service binary is registered eagerly via `class hal`, so the stock rc's
+# missing `interface` lines don't matter. The fragment declares
+# allocator@3.0/4.0 + IQtiAllocator@3.0/4.0; the same @4.0::IAllocator/default
+# entry must then be REMOVED from the main manifest to avoid a duplicate.
+echo "injecting QTI allocator service (mapper@4.0 provider):"
+ALLOC_BIN=$PROP/bin/hw/vendor.qti.hardware.display.allocator-service
+if [ -f "$ALLOC_BIN" ]; then
+    debugfs -w -R "rm /bin/hw/vendor.qti.hardware.display.allocator-service" "$TMP/vendor.raw" >/dev/null 2>&1 || true
+    debugfs -w -R "write $ALLOC_BIN /bin/hw/vendor.qti.hardware.display.allocator-service" "$TMP/vendor.raw" >/dev/null 2>&1
+    debugfs -w -R "sif /bin/hw/vendor.qti.hardware.display.allocator-service mode 0100755" "$TMP/vendor.raw" >/dev/null 2>&1
+    debugfs -w -R "sif /bin/hw/vendor.qti.hardware.display.allocator-service uid 0" "$TMP/vendor.raw" >/dev/null 2>&1
+    debugfs -w -R "sif /bin/hw/vendor.qti.hardware.display.allocator-service gid 0" "$TMP/vendor.raw" >/dev/null 2>&1
+    set_selinux_label "/bin/hw/vendor.qti.hardware.display.allocator-service" "u:object_r:hal_graphics_allocator_default_exec:s0"
+    echo "  + /bin/hw/vendor.qti.hardware.display.allocator-service"
+
+    awk '/^service vendor\.qti\.hardware\.display\.allocator/ { print; print "    stdio_to_kmsg"; next } { print }' \
+        "$PROP/etc/init/vendor.qti.hardware.display.allocator-service.rc" > "$TMP/allocator.rc"
+    debugfs -w -R "rm /etc/init/vendor.qti.hardware.display.allocator-service.rc" "$TMP/vendor.raw" >/dev/null 2>&1 || true
+    debugfs -w -R "write $TMP/allocator.rc /etc/init/vendor.qti.hardware.display.allocator-service.rc" "$TMP/vendor.raw" >/dev/null 2>&1
+    debugfs -w -R "sif /etc/init/vendor.qti.hardware.display.allocator-service.rc mode 0100644" "$TMP/vendor.raw" >/dev/null 2>&1
+    set_selinux_label "/etc/init/vendor.qti.hardware.display.allocator-service.rc" "u:object_r:vendor_configs_file:s0"
+    echo "  + /etc/init/vendor.qti.hardware.display.allocator-service.rc (stdio_to_kmsg)"
+
+    debugfs -w -R "rm /etc/vintf/manifest/vendor.qti.hardware.display.allocator-service.xml" "$TMP/vendor.raw" >/dev/null 2>&1 || true
+    debugfs -w -R "write $PROP/etc/vintf/manifest/vendor.qti.hardware.display.allocator-service.xml /etc/vintf/manifest/vendor.qti.hardware.display.allocator-service.xml" "$TMP/vendor.raw" >/dev/null 2>&1
+    debugfs -w -R "sif /etc/vintf/manifest/vendor.qti.hardware.display.allocator-service.xml mode 0100644" "$TMP/vendor.raw" >/dev/null 2>&1
+    set_selinux_label "/etc/vintf/manifest/vendor.qti.hardware.display.allocator-service.xml" "u:object_r:vendor_configs_file:s0"
+    echo "  + /etc/vintf/manifest/vendor.qti.hardware.display.allocator-service.xml"
+
+    if debugfs -R "cat /etc/vintf/manifest.xml" "$TMP/vendor.raw" 2>/dev/null > "$TMP/vintf.xml" && [ -s "$TMP/vintf.xml" ]; then
+        python3 - "$TMP/vintf.xml" <<'PYEOF'
+import sys
+p = sys.argv[1]
+xml = open(p).read()
+block = '''    <hal format="hidl">
+        <name>android.hardware.graphics.allocator</name>
+        <transport>hwbinder</transport>
+        <fqname>@4.0::IAllocator/default</fqname>
+    </hal>
+'''
+if block in xml:
+    open(p, 'w').write(xml.replace(block, '', 1))
+    print("  ~ main manifest: duplicate allocator@4.0 entry removed (fragment covers it)")
+else:
+    print("  = main manifest has no duplicate allocator@4.0 entry")
+PYEOF
+        debugfs -w -R "rm /etc/vintf/manifest.xml" "$TMP/vendor.raw" >/dev/null 2>&1 || true
+        debugfs -w -R "write $TMP/vintf.xml /etc/vintf/manifest.xml" "$TMP/vendor.raw" >/dev/null 2>&1
+        debugfs -w -R "sif /etc/vintf/manifest.xml mode 0100644" "$TMP/vendor.raw" >/dev/null 2>&1
+        set_selinux_label "/etc/vintf/manifest.xml" "u:object_r:vendor_configs_file:s0"
+    fi
+else
+    echo "  ! $ALLOC_BIN missing — mapper@4.0 will deadlock SF EGL"
 fi
 
 # Send qseecom-service's stdout/stderr to /dev/kmsg. Without this the service
