@@ -1,0 +1,4 @@
+# v51: background monitor in init's own context (init can write /dev/kmsg);
+# exec_background does not block init's main loop.
+on post-fs-data
+    exec_background u:r:init:s0 root root -- /vendor/bin/sh /vendor/bin/brgup_mon.sh
