@@ -472,6 +472,31 @@ if debugfs -R "cat $VFC_EX" "$TMP/vendor.raw" 2>/dev/null > "$TMP/vfc_ex.txt" &&
     fi
 fi
 
+# Round-88: adb without the authorization UI (the screen is unusable during
+# bring-up) plus a dontaudit for the spdaemon property avc flood that drowns
+# the kmsg ring via logd.auditd's kmsg relay (v48/v49).
+echo "patching vendor build.prop (adb) and vendor_sepolicy.cil (avc flood):"
+if debugfs -R "cat /build.prop" "$TMP/vendor.raw" 2>/dev/null > "$TMP/bp.txt" && [ -s "$TMP/bp.txt" ]; then
+    if ! grep -q "ro.adb.secure=0" "$TMP/bp.txt"; then
+        printf '\n# bring-up: adb without authorization UI\nro.adb.secure=0\npersist.sys.usb.config=adb\n' >> "$TMP/bp.txt"
+        debugfs -w -R "rm /build.prop" "$TMP/vendor.raw" >/dev/null 2>&1 || true
+        debugfs -w -R "write $TMP/bp.txt /build.prop" "$TMP/vendor.raw" >/dev/null 2>&1
+        debugfs -w -R "sif /build.prop mode 0100644" "$TMP/vendor.raw" >/dev/null 2>&1
+        set_selinux_label "/build.prop" "u:object_r:vendor_configs_file:s0"
+        echo "  + /build.prop (adb)"
+    fi
+fi
+if debugfs -R "cat /etc/selinux/vendor_sepolicy.cil" "$TMP/vendor.raw" 2>/dev/null > "$TMP/cil.txt" && [ -s "$TMP/cil.txt" ]; then
+    if ! grep -q "dontaudit vendor_spdaemon" "$TMP/cil.txt"; then
+        printf '\n(dontaudit vendor_spdaemon property_type (file (open getattr map read)))\n(dontaudit linkerconfig property_type (file (open getattr map read)))\n' >> "$TMP/cil.txt"
+        debugfs -w -R "rm /etc/selinux/vendor_sepolicy.cil" "$TMP/vendor.raw" >/dev/null 2>&1 || true
+        debugfs -w -R "write $TMP/cil.txt /etc/selinux/vendor_sepolicy.cil" "$TMP/vendor.raw" >/dev/null 2>&1
+        debugfs -w -R "sif /etc/selinux/vendor_sepolicy.cil mode 0100644" "$TMP/vendor.raw" >/dev/null 2>&1
+        set_selinux_label "/etc/selinux/vendor_sepolicy.cil" "u:object_r:vendor_configs_file:s0"
+        echo "  + vendor_sepolicy.cil (spdaemon/linkerconfig dontaudit)"
+    fi
+fi
+
 echo "injecting String8 shim and patching the health impl:"
 if [ -f "$STOCK/lib64/libs8.so" ]; then
     debugfs -w -R "rm /lib64/libs8.so" "$TMP/vendor.raw" >/dev/null 2>&1 || true
