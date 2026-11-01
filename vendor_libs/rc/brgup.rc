@@ -1,0 +1,15 @@
+# v50 bring-up probes: state changes straight into kmsg (logd-to-data is broken)
+on property:sys.usb.config=*
+    write /dev/kmsg "BRGUP: sys.usb.config=${sys.usb.config} ffs_ready=${sys.usb.ffs.ready}"
+on property:sys.usb.state=*
+    write /dev/kmsg "BRGUP: sys.usb.state=${sys.usb.state}"
+on property:init.svc.adbd=*
+    write /dev/kmsg "BRGUP: adbd=${init.svc.adbd}"
+on property:init.svc.surfaceflinger=*
+    write /dev/kmsg "BRGUP: surfaceflinger=${init.svc.surfaceflinger}"
+on property:init.svc.bootanim=*
+    write /dev/kmsg "BRGUP: bootanim=${init.svc.bootanim}"
+on property:sys.boot_completed=1
+    write /dev/kmsg "BRGUP: BOOT COMPLETED"
+on property:sys.usb.config=adb
+    start adbd

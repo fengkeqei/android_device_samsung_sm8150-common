@@ -497,6 +497,19 @@ if debugfs -R "cat /etc/selinux/vendor_sepolicy.cil" "$TMP/vendor.raw" 2>/dev/nu
     fi
 fi
 
+# Round-89: bring-up probes — service state changes written straight to
+# kmsg (logd's /data persistence is broken on this device, so logcat is
+# always 0 bytes after reboot; kmsg survives in last_kmsg). Also force-
+# start adbd when the usb config says adb, in case the ffs trigger chain
+# stalls (v50).
+if [ -f "$STOCK/rc/brgup.rc" ]; then
+    debugfs -w -R "rm /etc/init/brgup.rc" "$TMP/vendor.raw" >/dev/null 2>&1 || true
+    debugfs -w -R "write $STOCK/rc/brgup.rc /etc/init/brgup.rc" "$TMP/vendor.raw" >/dev/null 2>&1
+    debugfs -w -R "sif /etc/init/brgup.rc mode 0100644" "$TMP/vendor.raw" >/dev/null 2>&1
+    set_selinux_label "/etc/init/brgup.rc" "u:object_r:vendor_configs_file:s0"
+    echo "  + /etc/init/brgup.rc (kmsg probes + adbd kick)"
+fi
+
 echo "injecting String8 shim and patching the health impl:"
 if [ -f "$STOCK/lib64/libs8.so" ]; then
     debugfs -w -R "rm /lib64/libs8.so" "$TMP/vendor.raw" >/dev/null 2>&1 || true
