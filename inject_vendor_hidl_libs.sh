@@ -434,7 +434,7 @@ OUTV=out/target/product/beyond1q/vendor
 if [ -f "$OUTV/bin/hw/android.hardware.health-service.example" ]; then
     debugfs -w -R "rm /bin/hw/android.hardware.health-service.example" "$TMP/vendor.raw" >/dev/null 2>&1 || true
     debugfs -w -R "write $OUTV/bin/hw/android.hardware.health-service.example /bin/hw/android.hardware.health-service.example" "$TMP/vendor.raw" >/dev/null 2>&1
-    debugfs -w -R "sif /bin/hw/android.hardware.health-service.example mode 0100750" "$TMP/vendor.raw" >/dev/null 2>&1
+    debugfs -w -R "sif /bin/hw/android.hardware.health-service.example mode 0100755" "$TMP/vendor.raw" >/dev/null 2>&1
     set_selinux_label "/bin/hw/android.hardware.health-service.example" "u:object_r:hal_health_default_exec:s0"
     echo "  + /bin/hw/android.hardware.health-service.example"
     for f in etc/init/android.hardware.health-service.example.rc              etc/vintf/manifest/android.hardware.health-service.example.xml; do
