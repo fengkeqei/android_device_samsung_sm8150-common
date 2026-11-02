@@ -1,9 +1,22 @@
 # ============================================================
-# v113 ROM bring-up fixes (consolidated)
+# v114 ROM bring-up fixes (consolidated)
 # ============================================================
+#
+# IMPORTANT: this file no longer defines any USB gadget. The stock
+# /vendor/etc/init/hw/init.qcom.usb.rc owns that (it creates
+# functions/ffs.adb, functions/ffs.mtp, the /dev/usb-ffs mounts and the
+# "on property:sys.usb.ffs.ready=1" composition blocks). Until v114 that
+# file was missing from the vendor image (it was never in
+# proprietary-files.txt), so init.qcom.rc's "import" failed and nothing
+# created the gadget functions at all -- which is why every composition
+# ended in "failed to start g1: -19". v114 packages it, so the gadget
+# setup is back to the stock code path and only the below is needed.
 
-# ---- 1. /metadata on tmpfs (it is a 0771 empty dir on the read-only
-#         system partition, so every mkdir /metadata/* fails with EROFS) ----
+# ---- 1. /metadata on tmpfs ----
+# /metadata is a 0771 empty directory on the read-only system partition,
+# so every "mkdir /metadata/*" from init.rc / vold.rc / apexd.rc fails
+# with EROFS. init.rc mounts tmpfs for /tmp, /mnt/vm and /data_mirror but
+# not for /metadata.
 on early-fs
     mount tmpfs tmpfs /metadata mode=0771,uid=0,gid=1000
     mkdir /metadata/vold 0700 root root
@@ -21,46 +34,28 @@ on early-fs
     mkdir /metadata/avium 0770 system system
     restorecon_recursive /metadata
 
-# ---- 2. USB gadget for adb (self-contained) ----
+# ---- 2. adb composition ----
+# init.qcom.usb.rc defines "on property:sys.usb.config=mtp,adb" but the
+# boot-time selection comes from persist.sys.usb.config. Pin it to adb
+# only: the AOSP init.usb.configfs.rc "mtp,adb" block symlinks
+# functions/mtp.gs0, which this kernel does not provide, so the gadget
+# ends up half-populated. "adb" alone is a stock-supported composition in
+# init.qcom.usb.rc (it symlinks ffs.adb only).
 on boot
-    mkdir /config 0755 root root
-    mount configfs none /config
-    write /sys/class/android_usb/android0/enable 0
+    setprop persist.sys.usb.config adb
     setprop sys.usb.configfs 1
-    mkdir /config/usb_gadget/g1 0770 shell shell
-    write /config/usb_gadget/g1/idVendor 0x04e8
-    write /config/usb_gadget/g1/idProduct 0x6860
-    write /config/usb_gadget/g1/bDeviceClass 0x00
-    write /config/usb_gadget/g1/bMaxPacketSize0 0x40
-    mkdir /config/usb_gadget/g1/strings/0x409 0770 shell shell
-    write /config/usb_gadget/g1/strings/0x409/serialnumber RF8N32EV43X
-    write /config/usb_gadget/g1/strings/0x409/manufacturer Samsung
-    write /config/usb_gadget/g1/strings/0x409/product Android
-    mkdir /config/usb_gadget/g1/configs/b.1 0770 shell shell
-    mkdir /config/usb_gadget/g1/configs/b.1/strings/0x409 0770 shell shell
-    write /config/usb_gadget/g1/configs/b.1/strings/0x409/configuration mtp_adb
-    mkdir /config/usb_gadget/g1/functions/ffs.adb 0770 shell shell
-    mkdir /config/usb_gadget/g1/functions/ffs.mtp 0770 shell shell
-    mkdir /dev/usb-ffs 0770 shell shell
-    mkdir /dev/usb-ffs/adb 0770 shell shell
-    mount functionfs adb /dev/usb-ffs/adb
-    setprop sys.usb.config mtp,adb
 
-# ---- 3. bind the UDC after adbd has opened ep0 (ffs.adb must exist first,
-#         otherwise the gadget cannot start: "failed to start g1: -19") ----
-on property:init.svc.adbd=running
-    symlink /config/usb_gadget/g1/functions/ffs.mtp /config/usb_gadget/g1/configs/b.1/f1
-    symlink /config/usb_gadget/g1/functions/ffs.adb /config/usb_gadget/g1/configs/b.1/f2
-    write /config/usb_gadget/g1/UDC a600000.dwc3
-    setprop sys.usb.state mtp,adb
-    write /dev/kmsg "ROMFIX: UDC bound"
-
-# ---- 4. GPU firmware labels (4.14 vfat has no context= support) ----
+# ---- 3. GPU firmware labels ----
+# firmware_mnt is a vfat mount and 4.14 has no context= support, so all
+# of /vendor/firmware_mnt lands as vendor_file and kgsl's firmware
+# request fails with EACCES.
 on post-fs-data
     restorecon -R /vendor/firmware_mnt
     restorecon -R /vendor/firmware-modem
 
-# ---- 5. backlight (composer 2.1 has no brightness API) ----
+# ---- 4. backlight ----
+# composer@2.1 has no brightness API, so nothing raises the panel out of
+# its power-on default (black on OLED).
 on boot
     write /sys/class/backlight/panel0-backlight/brightness 20000
 

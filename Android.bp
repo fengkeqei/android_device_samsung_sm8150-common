@@ -21,3 +21,53 @@ cc_prebuilt_library_shared {
     check_elf_files: false,
     soc_specific: true,
 }
+
+// ============================================================
+// v114: restore the prebuilts that proprietary-files.txt lists but the
+// generated vendor Android.bp (stale since 2026-10-27) never declared.
+// ELF files cannot go through PRODUCT_COPY_FILES (kati rejects them), so
+// each one needs a module here. vendor_restore.mk carries the non-ELF
+// half of the same fix and the full explanation.
+//
+// Note: memtrack is NOT here -- hardware/interfaces/memtrack/1.0 builds it
+// from source with proprietary: true, so it is selected through
+// PRODUCT_PACKAGES in vendor_restore.mk instead.
+// ============================================================
+
+// QTI display allocator service: the mapper@4.0 provider that
+// surfaceflinger's graphics allocator looks up. It is the only HAL
+// implementing vendor.qti.hardware.display.allocator@4.0 on this device.
+//
+// This is a prebuilt rather than the source module of the same name in
+// hardware/qcom-caf/sm8150/display/gralloc, because that one pulls in
+// libgralloccore/libgrallocutils which do not compile against A16 bionic
+// (gr_allocator.cpp: "redefinition of 'sched_param'"). The prebuilt installs
+// to the same vendor path.
+
+// libsdedrm: pulled in by the Samsung DRM HAL. No source module exists
+// anywhere in this tree for the sm8150 configuration.
+cc_prebuilt_library_shared {
+    name: "libsdedrm_stock_prebuilt",
+    stem: "libsdedrm",
+    owner: "samsung",
+    target: {
+        android_arm: {
+            srcs: ["vendor_libs/lib/libsdedrm.so"],
+        },
+        android_arm64: {
+            srcs: ["vendor_libs/lib64/libsdedrm.so"],
+        },
+    },
+    compile_multilib: "both",
+    strip: {
+        none: true,
+    },
+    prefer: true,
+    check_elf_files: false,
+    soc_specific: true,
+}
+
+// secril_config_svc: run by init.vendor.rilcommon.rc as the "sim_config"
+// (on fs) and "network_config" (on post-fs-data) exec services. Both failed
+// with "Cannot find '/vendor/bin/secril_config_svc'" because the file was
+// never packaged.

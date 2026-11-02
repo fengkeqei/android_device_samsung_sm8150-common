@@ -225,6 +225,11 @@ vendor/etc/init/fingerprint_common.rc
 vendor/etc/init/hw/init.beyond1q.rc
 vendor/etc/init/hw/init.qcom.factory.rc
 vendor/etc/init/hw/init.qcom.rc
+# v114: init.qcom.rc does "import /vendor/etc/init/hw/init.qcom.usb.rc" and
+# init fails the whole import with ENOENT when this file is absent. That
+# leaves no code creating functions/ffs.adb, so every USB composition ends
+# in "udc a600000.dwc3: failed to start g1: -19" and adb never comes up.
+vendor/etc/init/hw/init.qcom.usb.rc
 vendor/etc/init/hw/init.qti.ufs.rc
 vendor/etc/init/hw/init.samsung.bsp.rc
 vendor/etc/init/hw/init.samsung.display.rc

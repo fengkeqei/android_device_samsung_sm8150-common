@@ -18,9 +18,20 @@
 /vendor/bin/dsmsca u:object_r:vendor_legacy_service_exec:s0
 /vendor/bin/emservice u:object_r:vendor_legacy_service_exec:s0
 /vendor/bin/hw/android\.hardware\.dumpstate@1\.1-service-lazy u:object_r:vendor_legacy_service_exec:s0
-/vendor/bin/hw/android\.hardware\.power\.samsung-service u:object_r:vendor_legacy_service_exec:s0
+# v113: these three services declare a non-root `user` in their rc, so init
+# requires the binary's label to be the exec type of that user's domain. The
+# catch-all vendor_legacy_service_exec below makes init refuse the exec with
+# "incorrect label or no domain transition":
+#   - codec2 rc says `user mediacodec` -> must be mediacodec_exec
+#     (was vendor_file: the service exited 95 times and never registered)
+#   - nfc rc says `user nfc`            -> must be hal_nfc_default_exec
+#   - power rc says `user system`       -> must be hal_power_default_exec
+# Later entries win on equal specificity, but replace in place to keep the
+# catch-all list readable.
+/vendor/bin/hw/android\.hardware\.power\.samsung-service u:object_r:hal_power_default_exec:s0
+/vendor/bin/hw/samsung\.software\.media\.c2@1\.0-service u:object_r:mediacodec_exec:s0
 /vendor/bin/hw/mppserver u:object_r:vendor_legacy_service_exec:s0
-/vendor/bin/hw/nxp\.android\.hardware\.nfc@1\.1-service u:object_r:vendor_legacy_service_exec:s0
+/vendor/bin/hw/nxp\.android\.hardware\.nfc@1\.1-service u:object_r:hal_nfc_default_exec:s0
 /vendor/bin/hw/vendor\.samsung\.hardware\.authfw@1\.0-service u:object_r:vendor_legacy_service_exec:s0
 /vendor/bin/hw/vendor\.samsung\.hardware\.camera\.provider@4\.0-service u:object_r:vendor_legacy_service_exec:s0
 /vendor/bin/hw/vendor\.samsung\.hardware\.hqm@1\.0-service u:object_r:vendor_legacy_service_exec:s0
