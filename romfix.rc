@@ -126,3 +126,27 @@ on property:sys.usb.state=adb
 on property:sys.boot_completed=1
     start usbdbg_done
 
+# v117: the property-triggered probes above only fire if the property ever
+# reaches that value. On this build sys.usb.state stays empty and
+# sys.usb.ffs.ready never becomes 1, so ffs/state/done never ran and the
+# only snapshots we got were from recovery's init. These two timed probes
+# fire unconditionally a few seconds into "on boot", which is exactly when
+# init.qcom.usb.rc has created the gadget and adbd has opened ep0.
+service usbdbg_boot5 /vendor/bin/usbdbg.sh boot5
+    class core
+    user root
+    group root system
+    oneshot
+    disabled
+
+service usbdbg_late /vendor/bin/usbdbg.sh late
+    class core
+    user root
+    group root system
+    oneshot
+    disabled
+
+on boot
+    start usbdbg_boot5
+    start usbdbg_late
+

@@ -13,6 +13,14 @@ TAG="${1:-unknown}"
 OUT=/data/usbdbg
 mkdir -p "$OUT" 2>/dev/null
 
+# The boot5/late probes are started from "on boot"; sleep here so the
+# snapshot lands after init.qcom.usb.rc has built the gadget and adbd has
+# had time to open ep0.
+case "$TAG" in
+    boot5) sleep 8 ;;
+    late)  sleep 25 ;;
+esac
+
 LOG="$OUT/$TAG.log"
 {
     echo "===== TAG=$TAG TS=$(date +%s) ====="
