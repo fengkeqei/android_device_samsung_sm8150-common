@@ -60,6 +60,19 @@ LOG="$OUT/$TAG.log"
     ps -A 2>/dev/null | grep -E 'logcatd|logcat'
     echo "--- logd threads ---"
     ps -AT 2>/dev/null | grep -E 'logd' | head -10
+    echo "--- functionfs ep state ---"
+    # ep0 exists once init mounts functionfs; ep1/ep2 are created by the
+    # kernel only after adbd successfully writes the descriptors to ep0.
+    # Seeing ep0 without ep1/ep2 means the descriptor write failed, which
+    # also means sys.usb.ffs.ready was never set.
+    ls -l /dev/usb-ffs/adb/ 2>/dev/null
+    echo "-- ep0 size (0 = no descriptors written yet) --"
+    stat -c '%s %n' /dev/usb-ffs/adb/ep0 2>/dev/null
+    echo "-- adbd fd count (single readdir, no per-fd readlink: that is audited) --"
+    ls /proc/$(pidof adbd 2>/dev/null)/fd 2>/dev/null | wc -l
+    echo "-- adbd cmdline --"
+    tr '\0' ' ' < /proc/$(pidof adbd 2>/dev/null)/cmdline 2>/dev/null
+    echo
     echo "--- end ---"
 } > "$LOG" 2>&1
 
