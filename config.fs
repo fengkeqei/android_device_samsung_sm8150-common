@@ -77,3 +77,19 @@ value: 5279
 
 [AID_VENDOR_QTI_DIAG]
 value: 2901
+
+# v122: built-in root. AOSP su relies on the su domain being permissive to
+# setgid/setuid, but on this ROM the domain transition never fires (the
+# process stays in the shell domain and lacks CAP_SETGID, so su dies with
+# "setgid failed: Operation not permitted"). Making the binary setuid-root
+# sidesteps that: the kernel elevates uid/gid before su.cpp runs, so the
+# setgid/setuid calls succeed regardless of domain.
+#
+# 4750 keeps it executable by owner and group only. su.cpp's uid gate is
+# already removed (v122), so any process that can execute this binary gets
+# root.
+[xbin/su]
+mode: 04750
+user: AID_ROOT
+group: AID_ROOT
+caps: 0

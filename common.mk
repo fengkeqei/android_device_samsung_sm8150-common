@@ -218,6 +218,15 @@ PRODUCT_COPY_FILES += \
 PRODUCT_COPY_FILES += \
     $(COMMON_PATH)/ueventd.rc:$(TARGET_COPY_OUT_VENDOR)/ueventd.rc
 
+# Built-in root (v122). system/extras/su builds su with install_in_xbin, so it
+# lands at /system/xbin/su, which system/sepolicy/private/file_contexts:324
+# already labels su_exec. system/sepolicy/private/su.te provides
+# "permissive su" and domain_auto_trans(shell, su_exec, su), so once exec'd
+# the process runs unrestricted. The uid gate in su.cpp was lifted so any
+# process can use it, not just root/shell.
+PRODUCT_PACKAGES += \
+    su
+
 # v116: debug_logcat.rc is NOT installed any more. It ran "start logcatd"
 # from post-fs-data, and logcatd reading "-b all" is the slow reader that
 # makes logd emit 13k+ "Skipping entries from slow reader" lines per boot,

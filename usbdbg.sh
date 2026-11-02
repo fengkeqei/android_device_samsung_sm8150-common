@@ -73,6 +73,11 @@ LOG="$OUT/$TAG.log"
     echo "-- adbd cmdline --"
     tr '\0' ' ' < /proc/$(pidof adbd 2>/dev/null)/cmdline 2>/dev/null
     echo
+    echo "--- adbd logcat (usb/ffs errors) ---"
+    # adbd logs to logd, not to kmsg, so the reason the descriptor write
+    # fails is invisible in /proc/last_kmsg. Pull it here.
+    logcat -d -v threadtime -s adbd:V usb_ffs:V usb:V AdbDaemon:V 2>/dev/null | tail -40
+    echo "--- end adbd logcat ---"
     echo "--- end ---"
 } > "$LOG" 2>&1
 
