@@ -42,6 +42,24 @@ LOG="$OUT/$TAG.log"
     ls -l /dev/usb-ffs/adb 2>/dev/null
     echo "--- adbd process ---"
     ps -A 2>/dev/null | grep -E 'adbd|adbd_socket'
+    echo "--- logd readers (who holds logdr socket) ---"
+    # v119: the previous implementation walked /proc/*/fd/* and readlink()ed
+    # every descriptor. Each readlink on another process is audited, which
+    # produced 9468 audit lines in one boot and evicted the first 19 s of
+    # kernel log -- the probe became the new flood. Use the socket table
+    # instead: /proc/net/unix lists logdr holders with pid, and 'ls -l
+    # /proc/<pid>/fd' is a single opendir+readdir per pid rather than a
+    # per-fd readlink.
+    echo "-- logdr/unix sockets --"
+    cat /proc/net/unix 2>/dev/null | grep -E 'logdr|logd|logdw' | head -10
+    echo "-- holders --"
+    for pid in $(cat /proc/net/unix 2>/dev/null | grep -E 'logdr' | awk '{print $NF}' | sort -u); do
+        [ -d "/proc/$pid" ] && echo "pid=$pid comm=$(cat /proc/$pid/comm 2>/dev/null)"
+    done
+    echo "--- logcatd / logcat processes ---"
+    ps -A 2>/dev/null | grep -E 'logcatd|logcat'
+    echo "--- logd threads ---"
+    ps -AT 2>/dev/null | grep -E 'logd' | head -10
     echo "--- end ---"
 } > "$LOG" 2>&1
 

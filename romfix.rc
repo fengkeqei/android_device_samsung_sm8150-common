@@ -35,15 +35,29 @@ on early-fs
     restorecon_recursive /metadata
 
 # ---- 2. adb composition ----
-# init.qcom.usb.rc defines "on property:sys.usb.config=mtp,adb" but the
-# boot-time selection comes from persist.sys.usb.config. Pin it to adb
-# only: the AOSP init.usb.configfs.rc "mtp,adb" block symlinks
-# functions/mtp.gs0, which this kernel does not provide, so the gadget
-# ends up half-populated. "adb" alone is a stock-supported composition in
-# init.qcom.usb.rc (it symlinks ffs.adb only).
+# v119: init.qcom.usb.rc only sets sys.usb.config inside its
+# "on charger && property:ro.debuggable=1" block. Its "on boot" block creates
+# the gadget (functions/ffs.adb, /dev/usb-ffs, the functionfs mount) and sets
+# sys.usb.configfs, but NEVER sets sys.usb.config. On a normal (non-charger)
+# boot that leaves sys.usb.config empty, so none of the
+# "on property:sys.usb.config=..." composition blocks ever fire: no f1
+# symlink is created and no UDC is bound. Confirmed on device:
+#   sys.usb.config  -> (unset)
+#   sys.usb.state   -> (unset)
+#   g1/UDC          -> (empty)
+#   configs/b.1     -> no f1
+# while ffs.adb, /dev/usb-ffs/adb and ep0 were all present and adbd was
+# running -- i.e. everything except the final composition step.
+#
+# Setting sys.usb.config here drives the stock "adb" block in
+# init.qcom.usb.rc, which removes f1..f9, sets the Samsung VID/PID,
+# symlinks functions/ffs.adb to configs/b.1/f1 and writes the UDC.
+# That block runs on "on property:sys.usb.ffs.ready=1 && sys.usb.config=adb",
+# and ffs.ready is set by adbd when it opens ep0, so the ordering is correct.
 on boot
     setprop persist.sys.usb.config adb
     setprop sys.usb.configfs 1
+    setprop sys.usb.config adb
 
 # ---- 3. GPU firmware labels ----
 # firmware_mnt is a vfat mount and 4.14 has no context= support, so all
