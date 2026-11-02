@@ -218,14 +218,20 @@ PRODUCT_COPY_FILES += \
 PRODUCT_COPY_FILES += \
     $(COMMON_PATH)/ueventd.rc:$(TARGET_COPY_OUT_VENDOR)/ueventd.rc
 
-# Start logcatd early so boot failures can be read from recovery
-PRODUCT_COPY_FILES += \
-    $(COMMON_PATH)/debug_logcat.rc:$(TARGET_COPY_OUT_VENDOR)/etc/init/debug_logcat.rc
+# v116: debug_logcat.rc is NOT installed any more. It ran "start logcatd"
+# from post-fs-data, and logcatd reading "-b all" is the slow reader that
+# makes logd emit 13k+ "Skipping entries from slow reader" lines per boot,
+# which evicts the entire early boot window from the kmsg ring buffer.
+# usbdbg.sh writes the USB state to /data instead (see romfix.rc).
 
 # Consolidated bring-up fixes (metadata tmpfs, adb composition, backlight,
 # GPU firmware labels). See BUILD_NOTES.md v114.
 PRODUCT_COPY_FILES += \
     $(COMMON_PATH)/romfix.rc:$(TARGET_COPY_OUT_VENDOR)/etc/init/romfix.rc
+
+# USB/adb state snapshots to /data (survives the flooded kmsg ring buffer).
+PRODUCT_COPY_FILES += \
+    $(COMMON_PATH)/usbdbg.sh:$(TARGET_COPY_OUT_VENDOR)/bin/usbdbg.sh
 
 # Restores the vendor files that proprietary-files.txt lists but the stale
 # generated makefiles (vendor/samsung/sm8150-common/{Android.bp,vendor.mk},

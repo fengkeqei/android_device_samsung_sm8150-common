@@ -65,3 +65,64 @@ on post-fs-data
 on property:sys.boot_completed=1
     write /sys/class/backlight/panel0-backlight/brightness 30000
     write /sys/class/timed_output/vibrator/enable 300
+
+# ---- 5. USB/adb state capture (v116) ----
+# The kmsg ring buffer is flooded by logd's "Skipping entries from slow
+# reader" lines (13k+ per boot), which evicts the whole 0-176 s boot window
+# before recovery can read /proc/last_kmsg. These snapshots go to
+# /data/usbdbg/ instead, so the "did adb come up?" question can be answered
+# without racing the ring buffer.
+#
+# Defined as oneshot services rather than inline "exec" so init reports
+# failures per-service ("Command 'start ...' failed") instead of silently
+# dropping them, and so the script runs under its own seclabel.
+service usbdbg_pfsd /vendor/bin/usbdbg.sh pfsd
+    class core
+    user root
+    group root system
+    oneshot
+    disabled
+
+service usbdbg_adbd /vendor/bin/usbdbg.sh adbd
+    class core
+    user root
+    group root system
+    oneshot
+    disabled
+
+service usbdbg_ffs /vendor/bin/usbdbg.sh ffs
+    class core
+    user root
+    group root system
+    oneshot
+    disabled
+
+service usbdbg_state /vendor/bin/usbdbg.sh state
+    class core
+    user root
+    group root system
+    oneshot
+    disabled
+
+service usbdbg_done /vendor/bin/usbdbg.sh bootdone
+    class core
+    user root
+    group root system
+    oneshot
+    disabled
+
+on post-fs-data
+    start usbdbg_pfsd
+
+on property:init.svc.adbd=running
+    start usbdbg_adbd
+
+on property:sys.usb.ffs.ready=1
+    start usbdbg_ffs
+
+on property:sys.usb.state=adb
+    start usbdbg_state
+
+on property:sys.boot_completed=1
+    start usbdbg_done
+
