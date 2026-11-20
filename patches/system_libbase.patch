@@ -34,3 +34,170 @@ index b8d66f2..56a38ae 100644
  cc_library_static {
      name: "libbase_ndk",
      defaults: ["libbase_defaults"],
+diff --git a/vendor_compat/abi_file.cpp b/vendor_compat/abi_file.cpp
+new file mode 100644
+index 0000000..722658c
+--- /dev/null
++++ b/vendor_compat/abi_file.cpp
+@@ -0,0 +1,26 @@
++/*
++ * SPDX-FileCopyrightText: 2025 The LineageOS Project
++ * SPDX-License-Identifier: Apache-2.0
++ */
++
++#include <android-base/file.h>
++#include <android-base/strings.h>
++#include <android-base/unique_fd.h>
++
++namespace android {
++namespace base {
++
++bool WriteStringToFd(const std::string& content, borrowed_fd fd) {
++    return WriteStringToFd(std::string_view(content), fd);
++}
++
++std::string Basename(const std::string& path) {
++    return Basename(std::string_view(path));
++}
++
++std::string Dirname(const std::string& path) {
++    return Dirname(std::string_view(path));
++}
++
++}  // namespace base
++}  // namespace android
+diff --git a/vendor_compat/abi_libbase_compat.cpp b/vendor_compat/abi_libbase_compat.cpp
+new file mode 100644
+index 0000000..8d509a5
+--- /dev/null
++++ b/vendor_compat/abi_libbase_compat.cpp
+@@ -0,0 +1,86 @@
++/*
++ * SPDX-FileCopyrightText: 2025 The LineageOS Project
++ * SPDX-License-Identifier: Apache-2.0
++ */
++
++// v127: old-libbase ABI compatibility overloads, compiled into libbase itself.
++//
++// Android-11-era Samsung vendor blobs were built against the pre-string_view
++// libbase API and reference these exact mangled names:
++//
++//   _ZN7android4base15WriteStringToFdERKNSt3__112basic_string...ENS0_11borrowed_fdE
++//   _ZN7android4base8BasenameERKNSt3__112basic_string...E
++//   _ZN7android4base7DirnameERKNSt3__112basic_string...E
++//   _ZN7android4base10StartsWithERKNSt3__112basic_string...EEPKc
++//   _ZN7android4base4TrimERKNSt3__112basic_string...E
++//
++// A16 only exports the std::string_view forms (and Trim is a template that
++// instantiates as Trim<std::string const&>, a different mangled name), so
++// these five are simply missing.
++//
++// They MUST live in libbase.so and not in a separate LD_PRELOAD library:
++// vndksupport loads vendor HALs with android_dlopen_ext() in the "(default)"
++// namespace, whose library paths are only /system/lib64 and
++// /system/system_ext/lib64. A shim in /vendor/lib64 is therefore invisible to
++// the namespace the HAL is resolved in:
++//
++//   WARNING: linker: library "/vendor/lib64/libbase_abi_shim.so" is not
++//   accessible for the namespace: [name="(default)", ...]
++//
++// which shows up as
++//
++//   vndksupport: Could not load /vendor/lib64/hw/android.hardware.health@2.0-impl.so
++//   from default namespace: dlopen failed: cannot locate symbol
++//   "_ZN7android4base15WriteStringToFd..." referenced by
++//   "/vendor/lib64/hw/android.hardware.health@2.0-impl-2.1-samsung.so"
++//
++// Adding the overloads here makes every copy of libbase (system, vendor,
++// recovery) export them, wherever the HAL happens to be loaded from.
++//
++// Overload safety: these are non-template overloads of existing string_view
++// functions. For each call site the non-template (const std::string&) form is
++// an exact match and only wins over a form needing a user-defined conversion
++// to string_view. For Trim the existing template still wins for rvalues and
++// non-const lvalues, so no existing caller changes meaning.
++
++#include <cstring>
++#include <string>
++#include <string_view>
++
++#include <android-base/file.h>
++#include <android-base/unique_fd.h>
++
++namespace android {
++namespace base {
++
++bool WriteStringToFd(const std::string& content, borrowed_fd fd) {
++    return WriteStringToFd(std::string_view(content), fd);
++}
++
++std::string Basename(const std::string& path) {
++    return Basename(std::string_view(path));
++}
++
++std::string Dirname(const std::string& path) {
++    return Dirname(std::string_view(path));
++}
++
++bool StartsWith(const std::string& s, const char* prefix) {
++    if (prefix == nullptr) return false;
++    return s.compare(0, std::strlen(prefix), prefix) == 0;
++}
++
++// Not implemented in terms of the Trim<T> template: the template would deduce
++// T = const std::string&, and naming the very overload being defined here
++// would be needlessly confusing. This mirrors the template's body.
++std::string Trim(const std::string& s) {
++    static constexpr std::string_view kWhitespace = "\n\t ";
++    std::string_view sv(s);
++    const size_t start = sv.find_first_not_of(kWhitespace);
++    if (start == std::string_view::npos) return std::string();
++    const size_t end = sv.find_last_not_of(kWhitespace) + 1;
++    return std::string(sv.substr(start, end - start));
++}
++
++}  // namespace base
++}  // namespace android
+diff --git a/vendor_compat/abi_logging.cpp b/vendor_compat/abi_logging.cpp
+new file mode 100644
+index 0000000..e30e829
+--- /dev/null
++++ b/vendor_compat/abi_logging.cpp
+@@ -0,0 +1,12 @@
++#include <android-base/logging.h>
++
++extern "C" void* _ZN7android4base10LogMessageC1EPKcjNS0_5LogIdENS0_11LogSeverityES3_i(
++        void* thisptr, const char* file, unsigned int line, android::base::LogId id,
++        android::base::LogSeverity severity, const char* tag, int error);
++
++extern "C" void* _ZN7android4base10LogMessageC1EPKcjNS0_5LogIdENS0_11LogSeverityEi(
++        void* thisptr, const char* file, unsigned int line, android::base::LogId id,
++        android::base::LogSeverity severity, int error) {
++    return _ZN7android4base10LogMessageC1EPKcjNS0_5LogIdENS0_11LogSeverityES3_i(
++            thisptr, file, line, id, severity, nullptr, error);
++}
+diff --git a/vendor_compat/abi_strings.cpp b/vendor_compat/abi_strings.cpp
+new file mode 100644
+index 0000000..5b7f4f8
+--- /dev/null
++++ b/vendor_compat/abi_strings.cpp
+@@ -0,0 +1,19 @@
++/*
++ * Copyright (C) 2023-2025 The LineageOS Project
++ *
++ * SPDX-License-Identifier: Apache-2.0
++ */
++
++#include <android-base/strings.h>
++
++namespace android {
++namespace base {
++bool StartsWith(const std::string& s, const char* prefix) {
++    return strncmp(s.c_str(), prefix, strlen(prefix)) == 0;
++}
++
++std::string Trim(const std::string& s) {
++    return Trim(std::string_view(s));
++}
++}  // namespace base
++}  // namespace android

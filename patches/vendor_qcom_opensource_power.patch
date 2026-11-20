@@ -103,3 +103,13 @@ index 01f9e70..b321076 100644
  
  on post-fs
      chmod 0664 /sys/devices/virtual/graphics/fb0/idle_time
+diff --git a/android.hardware.power-service.avium.rc b/android.hardware.power-service.avium.rc
+new file mode 100644
+index 0000000..bf23175
+--- /dev/null
++++ b/android.hardware.power-service.avium.rc
+@@ -0,0 +1,4 @@
++service vendor.power.system /system/bin/hw/android.hardware.power-service.avium
++    class main
++    user system
++    group system

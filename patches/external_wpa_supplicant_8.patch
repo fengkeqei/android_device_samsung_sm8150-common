@@ -1,3 +1,26 @@
+diff --git a/src/crypto/avium_keystore_stub.c b/src/crypto/avium_keystore_stub.c
+new file mode 100644
+index 00000000..8a164eb5
+--- /dev/null
++++ b/src/crypto/avium_keystore_stub.c
+@@ -0,0 +1,17 @@
++/*
++ * Avium beyond1q: stub for libkeystore-engine's EVP_PKEY_from_keystore.
++ *
++ * The system-domain wpa_supplicant_avium twin cannot link libkeystore-engine
++ * (vendor:true -> android.system.keystore2 -> vendor keymint HAL). tls_openssl.c
++ * references EVP_PKEY_from_keystore in its keystore-engine path (EAP-TLS private
++ * keys); returning NULL makes tls_engine_init() report
++ * TLS_SET_PARAMS_ENGINE_PRV_INIT_FAILED for those engines. Basic PSK / open
++ * networks do not use the engine path, so WiFi still works.
++ */
++#include <openssl/evp.h>
++
++EVP_PKEY * EVP_PKEY_from_keystore(const char *key_id)
++{
++	(void)key_id;
++	return NULL;
++}
 diff --git a/wpa_supplicant/Android.bp b/wpa_supplicant/Android.bp
 index a99502b4..61f54bd2 100644
 --- a/wpa_supplicant/Android.bp

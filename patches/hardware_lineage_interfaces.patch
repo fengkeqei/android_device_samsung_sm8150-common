@@ -90,6 +90,17 @@ index 82efed2..7f59ae0 100644
 +        "android.hardware.light-V2-ndk",
 +    ],
 +}
+diff --git a/light/android.hardware.light-service.lineage.avium.rc b/light/android.hardware.light-service.lineage.avium.rc
+new file mode 100644
+index 0000000..a492e7a
+--- /dev/null
++++ b/light/android.hardware.light-service.lineage.avium.rc
+@@ -0,0 +1,5 @@
++service avium.light-default /system/bin/hw/android.hardware.light-service.lineage.avium
++    class hal
++    user system
++    group system
++    shutdown critical
 diff --git a/light/android.hardware.light-service.lineage.rc b/light/android.hardware.light-service.lineage.rc
 index bc0814b..788d859 100644
 --- a/light/android.hardware.light-service.lineage.rc

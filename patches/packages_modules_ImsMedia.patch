@@ -102,6 +102,227 @@ index 252ca0e..7353e0b 100644
      shared_libs: [
          "libaaudio",
          "libmediandk",
+diff --git a/service/src/com/android/telephony/imsmedia/lib/libimsmedia/core/audio/android/ImsMediaAec.cpp b/service/src/com/android/telephony/imsmedia/lib/libimsmedia/core/audio/android/ImsMediaAec.cpp
+new file mode 100644
+index 0000000..ad264e7
+--- /dev/null
++++ b/service/src/com/android/telephony/imsmedia/lib/libimsmedia/core/audio/android/ImsMediaAec.cpp
+@@ -0,0 +1,215 @@
++/**
++ * Copyright (C) 2026 The Android Open Source Project
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *      http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++#include <ImsMediaAec.h>
++
++#include <android/log.h>
++// WebRTC's public headers are not built with this module's -Werror set; in
++// particular they contain unnamed/unused parameters (array_view.h,
++// echo_control.h). Silence those categories locally instead of relaxing the
++// whole module's warning policy.
++#pragma clang diagnostic push
++#pragma clang diagnostic ignored "-Wunused-parameter"
++#include <modules/audio_processing/include/audio_processing.h>
++#pragma clang diagnostic pop
++
++#include <algorithm>
++#include <cmath>
++
++#define AEC_LOGI(...) __android_log_print(ANDROID_LOG_INFO, "ims-aec", __VA_ARGS__)
++#define AEC_LOGW(...) __android_log_print(ANDROID_LOG_WARN, "ims-aec", __VA_ARGS__)
++
++// Near-end voice activity threshold on the raw capture RMS (int16 scale,
++// 1200 ≈ -28dBFS): above it the local user is speaking and the processed
++// uplink passes untouched.
++static constexpr float kNearSpeechRmsThresh = 1200.0f;
++// Gain applied to the processed uplink while the near end is silent: enough to
++// break the speakerphone howl loop, small enough to stay invisible for normal
++// conversation (residual echo only). -34dB: even a strong residual cannot
++// sustain the loop.
++static constexpr float kSilenceGain = 0.02f;
++static constexpr float kNearSpeechGain = 1.0f;
++
++ImsMediaAec* ImsMediaAec::GetInstance()
++{
++    static ImsMediaAec sInstance;
++    return &sInstance;
++}
++
++void ImsMediaAec::EnsureInit_l(int32_t sampleRate)
++{
++    if (mApm != nullptr)
++    {
++        return;
++    }
++
++    mApm = webrtc::AudioProcessingBuilder().Create();
++    if (mApm == nullptr)
++    {
++        AEC_LOGW("[EnsureInit] AudioProcessingBuilder failed");
++        return;
++    }
++
++    // AEC3 gives far better suppression on mobile loudspeakers than AECM and
++    // estimates the render/capture delay itself (we always declare 0 ms).
++    webrtc::AudioProcessing::Config config;
++    config.echo_canceller.enabled = true;
++    config.echo_canceller.mobile_mode = false;
++    config.noise_suppression.enabled = true;
++    config.high_pass_filter.enabled = true;
++    mApm->ApplyConfig(config);
++
++    mEnabled = true;
++    AEC_LOGI("[EnsureInit] created APM, AEC3+NS+HPF, rate[%d]", sampleRate);
++}
++
++void ImsMediaAec::FeedFarEnd(
++        const int16_t* data, int32_t numFrames, int32_t sampleRate, int32_t delayMs)
++{
++    if (data == nullptr || numFrames <= 0 || sampleRate <= 0)
++    {
++        return;
++    }
++
++    std::lock_guard<std::mutex> lock(mMutex);
++    EnsureInit_l(sampleRate);
++    if (mApm == nullptr || !mEnabled)
++    {
++        return;
++    }
++
++    mRenderRate = sampleRate;
++    mDelayMs = delayMs;
++    // Track far-end loudness (smoothed RMS over processed chunks) for the
++    // residual suppressor: FeedFarEnd is called for silence frames too, so this
++    // decays naturally when the far end goes quiet.
++    const int32_t frame = sampleRate / 100;  // 10 ms of mono samples
++    if (frame <= 0)
++    {
++        return;
++    }
++    mFarAcc.insert(mFarAcc.end(), data, data + numFrames);
++    std::vector<int16_t> scratch(frame);
++    webrtc::StreamConfig cfg(sampleRate, 1);
++    while ((int32_t)mFarAcc.size() >= frame)
++    {
++        int ret = mApm->ProcessReverseStream(mFarAcc.data(), cfg, cfg, scratch.data());
++        if (ret != webrtc::AudioProcessing::kNoError)
++        {
++            AEC_LOGW("[FeedFarEnd] ProcessReverseStream failed[%d]", ret);
++            mFarAcc.clear();
++            return;
++        }
++        double acc = 0;
++        for (int32_t i = 0; i < frame; i++)
++        {
++            acc += (double)scratch[i] * scratch[i];
++        }
++        const float rms = (float)sqrt(acc / frame);
++        mFarRms = 0.8f * mFarRms + 0.2f * rms;
++        mFarAcc.erase(mFarAcc.begin(), mFarAcc.begin() + frame);
++    }
++}
++
++void ImsMediaAec::ProcessNear(int16_t* data, int32_t numFrames, int32_t sampleRate)
++{
++    if (data == nullptr || numFrames <= 0 || sampleRate <= 0)
++    {
++        return;
++    }
++
++    std::lock_guard<std::mutex> lock(mMutex);
++    EnsureInit_l(sampleRate);
++    if (mApm == nullptr || !mEnabled)
++    {
++        return;
++    }
++
++    mCaptureRate = sampleRate;
++    const int32_t frame = sampleRate / 100;  // 10 ms of mono samples
++    if (frame <= 0)
++    {
++        return;
++    }
++
++    mNearAcc.insert(mNearAcc.end(), data, data + numFrames);
++    std::vector<int16_t> scratch(frame);
++    webrtc::StreamConfig cfg(sampleRate, 1);
++    static uint32_t sTuneLogCounter = 0;
++    while ((int32_t)mNearAcc.size() >= frame)
++    {
++        // Near-end voice activity on the raw capture: while the local user is
++        // talking the processed audio passes untouched; while they are silent
++        // any significant remaining energy is echo residual, and attenuating it
++        // breaks the speakerphone howl loop (mute stops the squeal the same
++        // way, this only ducks the residual instead of cutting the mic).
++        double acc = 0;
++        for (int32_t i = 0; i < frame; i++)
++        {
++            const int16_t v = mNearAcc[i];
++            acc += (double)v * v;
++        }
++        const float rawRms = (float)sqrt(acc / frame);
++        const bool nearSpeaking = rawRms > kNearSpeechRmsThresh;
++
++        mApm->set_stream_delay_ms(mDelayMs);
++        int ret = mApm->ProcessStream(mNearAcc.data(), cfg, cfg, scratch.data());
++        if (ret != webrtc::AudioProcessing::kNoError)
++        {
++            AEC_LOGW("[ProcessNear] ProcessStream failed[%d]", ret);
++            mNearAcc.clear();
++            mOutAcc.clear();
++            return;
++        }
++
++        if (nearSpeaking)
++        {
++            mGain = kNearSpeechGain;
++        }
++        else
++        {
++            mGain += (kSilenceGain - mGain) * 0.7f;  // ~2-3 chunks to full duck
++        }
++        if (mGain < 0.999f)
++        {
++            for (int32_t i = 0; i < frame; i++)
++            {
++                scratch[i] = (int16_t)std::max(-32768,
++                        std::min(32767, (int)(scratch[i] * mGain)));
++            }
++        }
++        mOutAcc.insert(mOutAcc.end(), scratch.begin(), scratch.end());
++        mNearAcc.erase(mNearAcc.begin(), mNearAcc.begin() + frame);
++
++        if (++sTuneLogCounter >= 500)
++        {
++            sTuneLogCounter = 0;
++            AEC_LOGI("[ProcessNear] rawRms[%.0f] farRms[%.0f] gain[%.2f] delayMs[%d]",
++                    rawRms, mFarRms, mGain, mDelayMs);
++        }
++    }
++
++    // Hand back exactly the burst that was passed in; keep any surplus
++    // processed audio queued for the next burst.
++    const int32_t out = (int32_t)mOutAcc.size() < numFrames ? (int32_t)mOutAcc.size() : numFrames;
++    memcpy(data, mOutAcc.data(), out * sizeof(int16_t));
++    mOutAcc.erase(mOutAcc.begin(), mOutAcc.begin() + out);
++    if (out < numFrames)
++    {
++        // Input lagged (first burst shorter than 10 ms): leave the raw tail.
++        AEC_LOGW("[ProcessNear] short output out[%d] of[%d]", out, numFrames);
++    }
++}
 diff --git a/service/src/com/android/telephony/imsmedia/lib/libimsmedia/core/audio/android/ImsMediaAudioPlayer.cpp b/service/src/com/android/telephony/imsmedia/lib/libimsmedia/core/audio/android/ImsMediaAudioPlayer.cpp
 index a9539d5..0b0db0e 100644
 --- a/service/src/com/android/telephony/imsmedia/lib/libimsmedia/core/audio/android/ImsMediaAudioPlayer.cpp
@@ -284,6 +505,90 @@ index ca8fb44..d19e6dc 100644
          // Set the buffer size to the burst size - this will give us the minimum
          // possible latency
          AAudioStream_setBufferSizeInFrames(mAudioStream, mBufferSize);
+diff --git a/service/src/com/android/telephony/imsmedia/lib/libimsmedia/core/audio/android/include/ImsMediaAec.h b/service/src/com/android/telephony/imsmedia/lib/libimsmedia/core/audio/android/include/ImsMediaAec.h
+new file mode 100644
+index 0000000..2726b0e
+--- /dev/null
++++ b/service/src/com/android/telephony/imsmedia/lib/libimsmedia/core/audio/android/include/ImsMediaAec.h
+@@ -0,0 +1,78 @@
++/**
++ * Copyright (C) 2026 The Android Open Source Project
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *      http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++#ifndef IMSMEDIA_AEC_H_INCLUDED
++#define IMSMEDIA_AEC_H_INCLUDED
++
++#include <cstdint>
++#include <mutex>
++#include <vector>
++
++#include <api/scoped_refptr.h>
++
++namespace webrtc
++{
++class AudioProcessing;
++}
++
++/**
++ * Round-72 72-2n: in-process acoustic echo canceller for the userspace IMS
++ * voice path.
++ *
++ * AOSP no longer feeds a far-end (reverse) stream to the pre-processing AEC
++ * effect (processReverse() has no callers in the A15 effect framework), so the
++ * software preprocessor attached by AudioPolicyEffects runs without a reference
++ * and cannot suppress loudspeaker echo. Both directions of the IMS call live in
++ * this process, so run WebRTC AudioProcessing here: the decoded downlink is fed
++ * as the far-end reference (FeedFarEnd, right before rendering) and the captured
++ * uplink is filtered in place through ProcessNear before encoding.
++ *
++ * All methods may be called from any thread; the instance serializes access
++ * internally. Audio is accumulated internally into the ~10 ms frames
++ * AudioProcessing requires.
++ */
++class ImsMediaAec
++{
++public:
++    static ImsMediaAec* GetInstance();
++
++    /** Feed decoded downlink PCM (host order int16, mono) as the far-end echo
++     * reference. Call right before the frames are handed to the audio sink.
++     * delayMs is the measured latency between this reference point and the
++     * acoustic output (AAudio/HAL buffering), used as the AEC alignment hint. */
++    void FeedFarEnd(const int16_t* data, int32_t numFrames, int32_t sampleRate, int32_t delayMs);
++
++    /** Filter captured uplink PCM in place before encoding. */
++    void ProcessNear(int16_t* data, int32_t numFrames, int32_t sampleRate);
++
++private:
++    ImsMediaAec() = default;
++    void EnsureInit_l(int32_t sampleRate);
++
++    std::mutex mMutex;
++    rtc::scoped_refptr<webrtc::AudioProcessing> mApm;
++    bool mEnabled = false;
++    int32_t mCaptureRate = 0;
++    int32_t mRenderRate = 0;
++    int32_t mDelayMs = 0;
++    float mFarRms = 0.0f;  // smoothed far-end loudness (residual suppressor)
++    float mGain = 1.0f;    // current uplink gain of the residual suppressor
++    std::vector<int16_t> mFarAcc;
++    std::vector<int16_t> mNearAcc;
++    std::vector<int16_t> mOutAcc;
++};
++
++#endif  // IMSMEDIA_AEC_H_INCLUDED
 diff --git a/service/src/com/android/telephony/imsmedia/lib/libimsmedia/core/audio/android/include/ImsMediaAudioPlayer.h b/service/src/com/android/telephony/imsmedia/lib/libimsmedia/core/audio/android/include/ImsMediaAudioPlayer.h
 index cfdf2d3..5123bac 100644
 --- a/service/src/com/android/telephony/imsmedia/lib/libimsmedia/core/audio/android/include/ImsMediaAudioPlayer.h
@@ -297,3 +602,19 @@ index cfdf2d3..5123bac 100644
      void openAudioStream();
      void restartAudioStream();
      static void audioErrorCallback(AAudioStream* stream, void* userData, aaudio_result_t error);
+diff --git a/service/sysconfig/privapp-permissions-com.android.telephony.imsmedia.xml b/service/sysconfig/privapp-permissions-com.android.telephony.imsmedia.xml
+new file mode 100644
+index 0000000..5612544
+--- /dev/null
++++ b/service/sysconfig/privapp-permissions-com.android.telephony.imsmedia.xml
+@@ -0,0 +1,10 @@
++<?xml version="1.0" encoding="utf-8"?>
++<!-- beyond1q: privileged permissions for the IMS media service.
++     CAPTURE_AUDIO_OUTPUT is required so AudioPolicyManager does not silence
++     the IMS capture client during an active call (VoLTE uplink). Mirrors the
++     A15 tree (fengkeqei/ImsMedia, Round 71). -->
++<permissions>
++    <privapp-permissions package="com.android.telephony.imsmedia">
++        <permission name="android.permission.CAPTURE_AUDIO_OUTPUT"/>
++    </privapp-permissions>
++</permissions>

@@ -112,10 +112,33 @@ if [ "$MODE" = regen ]; then
     for p in "${PROJECTS[@]}"; do
         [ -d "$TREE/$p/.git" ] || continue
         out="$(patch_for "$p")"
+        # New files matter as much as edits: several bring-up fixes add whole
+        # files (audio legacy impls, avium rc/xml, shim sources). Plain
+        # `git diff` ignores untracked paths, so a tree that only ever gained
+        # files would export an empty patch and silently lose them on the next
+        # `repo sync`. Stage intent-to-add first so they show up as additions.
+        git -C "$TREE/$p" add -N . >/dev/null 2>&1 || true
         if git -C "$TREE/$p" diff --quiet 2>/dev/null; then
+            git -C "$TREE/$p" reset -q >/dev/null 2>&1 || true
             continue
         fi
+        # Binaries cannot round-trip through a patch: git writes only
+        # "Binary files differ" and `git apply` then refuses. Those blobs are
+        # handled by restore_binary_blobs.sh instead, so exclude them here.
         git -C "$TREE/$p" diff > "$out"
+        if grep -q "^Binary files " "$out" 2>/dev/null; then
+            # Drop the binary entries, keep everything else.
+            python3 - "$out" <<'PY'
+import re, sys
+path = sys.argv[1]
+text = open(path, encoding='utf-8', errors='surrogateescape').read()
+blocks = re.split(r'(?m)^(?=diff --git )', text)
+kept = [b for b in blocks if b.strip() and 'Binary files ' not in b]
+open(path, 'w', encoding='utf-8', errors='surrogateescape').write(''.join(kept))
+PY
+        fi
+        # Drop the intent-to-add marks again so the tree looks untouched.
+        git -C "$TREE/$p" reset -q >/dev/null 2>&1 || true
         echo "wrote $out ($(wc -l < "$out") lines)"
     done
     exit 0

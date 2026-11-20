@@ -98,6 +98,33 @@ index f398957..04f4f9e 100644
      <boolean name="show_apn_setting_cdma_bool" value="true"/>
      <string name="sim_country_iso_override_string">cn</string>
      <boolean name="ascii_7_bit_support_for_long_message_bool" value="true"/>
+diff --git a/assets/carrier_config_mccmnc_46015.xml b/assets/carrier_config_mccmnc_46015.xml
+new file mode 100644
+index 0000000..a1e33b6
+--- /dev/null
++++ b/assets/carrier_config_mccmnc_46015.xml
+@@ -0,0 +1,21 @@
++<?xml version='1.0' encoding='utf-8' standalone='yes' ?>
++<!-- beyond1q / AviumUI: China Broadcasting Network (CBN, 广电, MCC 460 MNC 15)
++     VoLTE via the open-source ImsStack. A16's CarrierConfig assets have no
++     mccmnc_46015 file at all, so carrier_volte_available_bool defaulted to
++     false and VoLTE was impossible on this carrier. Mirrors the A15 tree
++     (fengkeqei/android_packages_apps_CarrierConfig, lineage-22.2-beyond1q,
++     assets/carrier_config_mccmnc_46015.xml).
++
++     carrier_volte_available_bool is the master gate (ImsManager turnOnIms);
++     ims.supported_rats limits registration to LTE. -->
++<carrier_config_list>
++    <carrier_config>
++        <boolean name="carrier_volte_available_bool" value="true" />
++        <boolean name="carrier_vt_available_bool" value="true" />
++        <boolean name="volte_user_setting_visibility_bool" value="true" />
++        <boolean name="ims.request_ims_pdn_without_mmtel_bool" value="true" />
++        <int-array name="ims.supported_rats_int_array" num="1">
++            <item value="3" />
++        </int-array>
++    </carrier_config>
++</carrier_config_list>
 diff --git a/res/xml/vendor.xml b/res/xml/vendor.xml
 index 58a87d8..2829658 100644
 --- a/res/xml/vendor.xml

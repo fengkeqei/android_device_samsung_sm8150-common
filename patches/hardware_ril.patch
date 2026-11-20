@@ -1,8 +1,8 @@
 diff --git a/rild/Android.bp b/rild/Android.bp
-index 8a14786..2f5995e 100644
+index 8a14786..56f7867 100644
 --- a/rild/Android.bp
 +++ b/rild/Android.bp
-@@ -30,8 +30,34 @@ license {
+@@ -30,8 +30,42 @@ license {
      ],
  }
  
@@ -19,6 +19,14 @@ index 8a14786..2f5995e 100644
 +// fix_vendor_mountpoints.sh; shipping the blob as the rild module itself keeps
 +// PRODUCT_PACKAGES/`rild` (enforced by vendor/lineage/config/common.mk) and the
 +// rild.rc service name intact.
++//
++// NOTE: rild_stock is a binary and therefore cannot be carried by
++// patches/hardware_ril.patch. It is copied back into place by
++// device/samsung/sm8150-common/restore_binary_blobs.sh, which runs from
++// build_detached.sh right after the patch gate. The canonical copies live in
++// vendor/samsung/sm8150-common/proprietary/vendor/bin/hw/rild and
++// device/samsung/sm8150-common/vendor_radio/bin/hw/rild, both under version
++// control.
 +cc_prebuilt_binary {
      name: "rild",
 +    srcs: ["rild_stock"],
@@ -38,7 +46,7 @@ index 8a14786..2f5995e 100644
      srcs: ["rild.c"],
  
      shared_libs: [
-@@ -58,9 +84,5 @@ cc_binary {
+@@ -58,9 +92,5 @@ cc_binary {
      }),
      relative_install_path: "hw",
      proprietary: true,
