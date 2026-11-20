@@ -164,3 +164,211 @@ on boot
     start usbdbg_boot5
     start usbdbg_late
 
+# ---- 6. Power HAL: kill the duplicate Samsung registration (v125) ----
+# Two services claim android.hardware.power.IPower/default:
+#   vendor.power                  -> android.hardware.power-service-qti  (source-built, A16 ABI OK)
+#   vendor.samsung.power-default  -> android.hardware.power.samsung-service (stock blob)
+#
+# The Samsung blob is an Android-11-era AIDL client. When SystemServer's
+# HintManagerService calls getSupportInfo() it dies inside
+# binder::Status::writeToParcel (SIGSEGV at fault addr 0x0, see tombstone_18)
+# and the caller gets DeadObjectException, which propagates as
+#   java.lang.IllegalStateException: Could not contact PowerHAL!
+#   -> FATAL EXCEPTION IN SYSTEM PROCESS
+# so system_server restarted every 5 s and never reached the activity
+# service (this was the "stuck on first screen" symptom).
+#
+# power-default-sec.rc is therefore not installed (commented out in
+# proprietary-files.txt); this is belt-and-braces in case a stale copy
+# survives on /vendor.
+on post-fs-data
+    stop vendor.samsung.power-default
+    start vendor.power
+
+# ---- 7. thermal HAL: SystemServer blocks forever without it (v125) ----
+# HardwarePropertiesManagerService's constructor calls nativeInit(), which
+# does IThermal::getService() -- the default getService(true), i.e. an
+# infinite 1-second retry loop -- on the system_server main thread.
+#
+# vendor.samsung.hardware.thermal@1.0-service provides the
+# android.hardware.thermal@1.0::IThermal/default instance, but it needs
+# android.frameworks.cameraservice.{service,device}@2.0.so and
+# .common@2.0.so, which A16 (no VNDK) does not expose from /system/lib64
+# to vendor processes. vendor_restore.mk installs them into /vendor/lib64.
+on boot
+    start sec-thermal-1-0
+    start thermal-engine
+
+# ---- 8. health@2.1 passthrough impl names (v125) ----
+# android.hardware.health@2.1-service-samsung calls
+# IHealth_2_0::getService("default", getStub=true), which resolves the
+# passthrough library by interface name:
+#   android.hardware.health@2.1-impl.so
+#   android.hardware.health@2.0-impl.so
+# Samsung only ships android.hardware.health@2.0-impl-2.1-samsung.so, so these
+# links are required for the passthrough lookup to find it at all.
+on post-fs
+    symlink android.hardware.health@2.0-impl-2.1-samsung.so /vendor/lib64/hw/android.hardware.health@2.1-impl.so
+    symlink android.hardware.health@2.0-impl-2.1-samsung.so /vendor/lib64/hw/android.hardware.health@2.0-impl.so
+    symlink android.hardware.health@2.0-impl-2.1-samsung.so /vendor/lib64/hw/android.hardware.health@2.1-impl-2.1-samsung.so
+
+# ---- 8b. do NOT run the Samsung health HAL (v127) ----
+# With the symlinks above and libbase's old ABI restored (see
+# system/libbase/vendor_compat/abi_libbase_compat.cpp), the passthrough
+# library finally dlopen()s and HIDL_FETCH_IHealth runs. It then dies one
+# layer deeper, inside healthd_board_init():
+#   Abort message: 'Scudo ERROR: misaligned pointer when deallocating
+#                   address 0x...'
+#     #06 android.hardware.health@2.0-impl-2.1-samsung.so
+#           healthd_config::~healthd_config()+100
+#     #07 android.hardware.health@2.0-impl-2.1-samsung.so
+#           healthd_board_init(healthd_config*)+412
+#     #08 android.hardware.health@2.0-impl-2.1-samsung.so HIDL_FETCH_IHealth
+# healthd_config is a struct declared in AOSP headers; A16 changed its member
+# layout, so the blob writes fields at Android-11 offsets and the A16
+# destructor then walks a std::string/unique_ptr at the wrong offset. That is
+# a struct-layout incompatibility, not a missing symbol, so no shim fixes it.
+#
+# It is also unnecessary: the AOSP AIDL service already runs and serves the
+# same thing
+#   service check android.hardware.health.IHealth/default  -> found
+#   dumpsys battery  -> real values (charge counter, status, USB powered)
+# A16's BatteryService talks AIDL, not HIDL. Keeping the Samsung service
+# running only produces a crash + restart every 5 s.
+on post-fs-data
+    stop health-hal-2-1-samsung
+
+# ---- 9. keymaster@4.0: software AOSP service instead of the TEE blob (v125) ----
+# The service definition lives in
+# vendor/samsung/sm8150-common/proprietary/vendor/etc/init/
+#   android.hardware.keymaster@4.0-service.rc
+# and points at android.hardware.keymaster@4.0-service_aosp.
+#
+# An "override" statement was tried here first and does NOT work: init
+# parses rc files in glob order, so romfix.rc can be read before the file
+# that defines vendor.keymaster-4-0, and the override silently has no
+# effect. The rc file itself was edited instead.
+
+# ---- 10. keep the screen awake during bring-up (v125) ----
+# Once the screen turns off, DisplayManager flips the internal viewport to
+# isActive=false, and TouchInputMapper then does
+#   mDeviceMode = DeviceMode::DISABLED;   ("associated viewport is not active")
+# so touch input stops working until the screen is on again. On a fresh
+# boot SetupWizard sits idle, the default 60 s screen-off timeout fires,
+# and the device looks dead ("black screen, no touch") even though
+# sys.boot_completed is already 1.
+#
+# stay_on_while_plugged_in=15 keeps the screen on whenever any charger is
+# connected, which is the normal state during bring-up.
+on property:sys.boot_completed=1
+    write /sys/class/backlight/panel0-backlight/brightness 30000
+
+# ---- 11. fuse guard for the Samsung ril-daemon storm (v132bp) ----
+# ril-daemon / ril-daemon1 (vendor blobs) exit with status 255 every cycle
+# on this A16 base. Each "exited 4 times before boot completed" raises
+# sys.init.updatable_crashing, whose flags_health_check action SIGKILLs
+# system_server every ~30 s, so boot never finishes (this exact mechanism
+# ended in download mode during v132bm/bn). We stop the service on the
+# restarting edge, before the 4-exit threshold can be reached: the counter
+# resets and the storm fuse is removed WITHOUT disabling anything that
+# works. Baseband bring-up (why the blob returns 255) is a separate
+# investigation; until then this guard costs nothing because a
+# crash-looping ril provides no telephony anyway.
+# NOTE: property triggers match LITERALLY; the real props are
+# init.svc.ril-daemon / init.svc.ril-daemon1 (hyphens, not underscores).
+on property:init.svc.ril-daemon=restarting
+    stop ril-daemon
+on property:init.svc.ril-daemon1=restarting
+    stop ril-daemon1
+
+
+# ---- 12. emulated storage auto-mount (v132fix) ----
+# On this build vold creates the emulated;0 volume at user-start but never
+# mounts it: EmulatedVolume::create() only registers it, and the component
+# that drives the actual mount is MediaProvider's FuseDaemon, which polls
+# ("FuseDaemonThread: Waiting 100ms for FUSE start. Count 49") and gives up.
+# Result before this fix: /storage/emulated/0 stays an empty tmpfs -> Files has
+# no internal-storage root, camera cannot save (gallery empty), MediaStore
+# reports "Volume external_primary not found".
+#
+# Ordering is critical and was verified on device:
+#   * mounting BEFORE MediaProvider starts -> MediaProvider's VolumeCache
+#     initialises without the emulated volume and never picks it up
+#     ("attached volumes: {MediaVolume name: [internal] id: [null]}").
+#   * mounting AFTER MediaProvider is up  -> volume registers and
+#     /storage/emulated/0 gains the standard tree (DCIM, Documents, ...).
+# We therefore mount on every transition of the external-storage service to
+# running, and again at boot_completed (idempotent; re-mounting also revives
+# the FUSE channel if MediaProvider was restarted).
+# MediaProvider is a Java process (no init service name to key on), so use a
+# timed retry: first attempt right at boot_completed, then a few seconds later
+# once its VolumeCache is fully initialised. Mounting is idempotent.
+on property:sys.boot_completed=1
+    exec - root system -- /vendor/bin/storage_fix.sh
+
+# v136: keep USB in configfs mode from the very start of second stage.
+#
+# The device otherwise stays "usb unconfigured" until the standard
+# init.usb.configfs.rc action runs in `on boot`, so a boot that stalls before
+# `on boot` has no adb at all and no way to read the failure. The matching
+# sys.usb.config=adb trigger lives in system/security/keystore2/keystore2.rc
+# (system domain: apexd_prop is not readable from a vendor rc).
+on post-fs-data
+    setprop sys.usb.configfs 1
+
+# Avium beyond1q: fix the rear flash node ownership from the vendor domain.
+#
+# The s2mpb02 probe creates /sys/devices/virtual/camera/flash/rear_flash after
+# "on boot", so the stock chown in init.qcom.rc races and loses. The node stays
+# root:root 0664, and the camera provider (vendor_legacy_service, uid 1047) can
+# only read it, so the torch write fails:
+#   E CamX: SetSysfsTorchMode() rear_flash : cannot open file
+# CameraService still reports the torch as AVAILABLE_ON, so the Quick Settings
+# tile flips on and immediately back off.
+#
+# The chown/chmod must run from a VENDOR rc (vendor_init domain): sysfs_camera_
+# writable is a vendor-private type, and plat init cannot get setattr on it
+# (domain.te neverallows coredomain setattr across sysfs_type). vendor_init is
+# allowed by the vendor policy in vendor_legacy_service.te.
+on property:sys.boot_completed=1
+    chown system system /sys/devices/virtual/camera/flash/rear_flash
+    chmod 0666 /sys/devices/virtual/camera/flash/rear_flash
+
+# Avium beyond1q: fix VK (VaultKeeper) key data ownership.
+#
+# /keydata/misc and /keyrefuge/misc hold the VK ID blobs, but the hashed
+# subdirectories come up as root:root 0700 while vaultkeeperd runs as `system`:
+#   vaultkeeper: There is no VK ID
+#   vaultkeeper: VaultKeeper service preparation is failed
+# and the missing VK ID is what breaks gatekeeper enroll on the TEE path
+# ("Failed to enroll LSKF for new SP protector for user 0"), which in turn
+# leaves the fingerprint HAL unable to obtain a TEE-accepted HAT
+# (BAuth_Hat_OP rv 28).
+# init's chown/chmod take a single path (no -R), so the recursive fix lives in
+# a helper script.
+on post-fs-data
+    chown system system /keydata/misc
+    chown system system /keyrefuge/misc
+    exec - root root -- /system/bin/sh /vendor/bin/fix_vk_keydata.sh
+
+# Avium beyond1q: seed the vendor radio properties that /vendor/build.prop
+# cannot deliver.
+#
+# The stock firmware sets persist.vendor.radio.atfwd.start=true and
+# persist.vendor.radio.enableadvancedscan=true (see
+# stock_baseline/props_all.txt). They are present in this tree's system.prop and
+# land in /vendor/build.prop, but A16 does not load persist.vendor.* values from
+# a partition build.prop into the property store for a vendor-domain consumer,
+# so getprop returns empty and libsec-ril never enables AT forwarding or
+# advanced scan. Setting them from a vendor rc puts them in the right namespace.
+#
+# Effect of the two: atfwd.start opens the AT command channel the Samsung RIL
+# uses to drive the modem, and enableadvancedscan turns on the extended
+# neighbour-cell scan that automatic network selection relies on. Without them
+# the modem reports
+#   RSSI level = 0x0000 - LTE: 0, EVDO: 0, CDMA: 0, GSM: 0, NR5G: 0
+# and never leaves QMI_NAS_NW_SEL_STATE_NO_SERVICE.
+on early-init
+    setprop persist.vendor.radio.atfwd.start true
+    setprop persist.vendor.radio.enableadvancedscan true
+    setprop persist.radio.silent-reset 2

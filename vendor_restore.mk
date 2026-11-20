@@ -96,3 +96,45 @@ PRODUCT_PACKAGES += \
 # already builds it from source, it just was not selected.
 PRODUCT_PACKAGES += \
     secril_config_svc
+
+# ---- v125: vendor blobs that exist only in the vendor tree ----
+# Only libhyper.so needs copying. Everything else in this group is already
+# installed by soong once the interface modules are in PRODUCT_PACKAGES
+# (see common.mk): adding common.mk entries for
+# android.frameworks.cameraservice.{common,device}@2.0 pulls in
+# .service@2.0/.service@2.1, and android.hardware.nfc@1.0/@1.1 pulls in
+# nfc_nci_nxp.so and libcodec2_hidl@1.1.so transitively. Copying them again
+# makes kati fail with
+#   overriding commands for target
+#   .../vendor/lib64/android.frameworks.cameraservice.service@2.0.so
+# so they are deliberately absent from this list.
+#
+# libhyper.so (vendor.samsung.hardware.hyper-service) has no module in the
+# build graph at all.
+PRODUCT_COPY_FILES += \
+    $(PROP)/vendor/lib64/libhyper.so:$(TARGET_COPY_OUT_VENDOR)/lib64/libhyper.so
+
+# ---- v125: health@2.1 impl under the name the service looks for ----
+# android.hardware.health@2.1-service-samsung does
+#   IHealth_2_0::getService("default", /*getStub=*/true)
+# which resolves the passthrough library by the *interface* name, i.e.
+# android.hardware.health@2.1-impl.so (and the 2.0 form). Samsung ships the
+# implementation only as android.hardware.health@2.0-impl-2.1-samsung.so, so
+# every start aborts with
+#   Check failed: passthrough != nullptr
+#   Cannot find passthrough implementation of health 2.1-samsung HAL
+# and BatteryService.onStart blocks on the system_server main thread.
+# Symlinks are created by romfix.rc (init cannot copy symlinks from
+# PRODUCT_COPY_FILES), see the "health impl" block there.
+
+# v127: the old libbase ABI (WriteStringToFd(const string&, borrowed_fd),
+# Basename/Dirname(string), StartsWith(string, const char*), Trim(string)) is
+# now compiled into libbase itself, in system/libbase/Android.bp. It cannot be
+# a separate vendor library: vndksupport loads vendor HALs in the "(default)"
+# linker namespace, which only searches /system/lib64, so an LD_PRELOAD shim
+# from /vendor/lib64 is never considered. Nothing to select here.
+#
+# Previously also carried libcgroup_shim for the stock composer; that module
+# is still declared in Android.bp but is not installed either, see above.
+PRODUCT_PACKAGES += \
+    libcgroup_shim

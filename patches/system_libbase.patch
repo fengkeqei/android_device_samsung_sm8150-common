@@ -1,0 +1,36 @@
+diff --git a/Android.bp b/Android.bp
+index b8d66f2..56a38ae 100644
+--- a/Android.bp
++++ b/Android.bp
+@@ -140,6 +140,14 @@ cc_defaults {
+ cc_library {
+     name: "libbase",
+     defaults: ["libbase_defaults"],
++    // v127: restore the pre-string_view libbase ABI that Android-11-era vendor
++    // blobs are linked against (WriteStringToFd(const std::string&, borrowed_fd),
++    // Basename/Dirname(const std::string&), StartsWith(const std::string&,
++    // const char*), Trim(const std::string&)). This must be part of libbase
++    // itself: vndksupport dlopens vendor HALs inside the "(default)" linker
++    // namespace, which only searches /system/lib64, so an LD_PRELOAD library
++    // in /vendor/lib64 is never considered. See the file header for details.
++    srcs: ["vendor_compat/abi_libbase_compat.cpp"],
+     vendor_available: true,
+     product_available: true,
+     ramdisk_available: true,
+@@ -160,6 +168,16 @@ cc_library {
+     ],
+ }
+ 
++// v127 note: an earlier attempt exposed the old libbase ABI through a separate
++// vendor shared library ("libbase_abi_shim") LD_PRELOAD-ed by the affected
++// service rc files. That does not work: vndksupport dlopens vendor HALs inside
++// the "(default)" linker namespace, and a shim living in /vendor/lib64 is not
++// reachable from there:
++//   WARNING: linker: library "/vendor/lib64/libbase_abi_shim.so" is not
++//   accessible for the namespace: [name="(default)", ...]
++// so the symbols have to be compiled into libbase itself (see the "libbase"
++// module above). The module is gone; do not reintroduce it.
++
+ cc_library_static {
+     name: "libbase_ndk",
+     defaults: ["libbase_defaults"],

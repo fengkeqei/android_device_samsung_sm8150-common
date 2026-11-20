@@ -1,0 +1,162 @@
+diff --git a/assets/carrier_config_carrierid_1435_China-Mobile.xml b/assets/carrier_config_carrierid_1435_China-Mobile.xml
+index f5fae85..2392253 100644
+--- a/assets/carrier_config_carrierid_1435_China-Mobile.xml
++++ b/assets/carrier_config_carrierid_1435_China-Mobile.xml
+@@ -6,4 +6,30 @@
+     <boolean name="allow_hold_video_call_bool" value="false" />
+     <boolean name="support_video_conference_call_bool" value="false"/>
+     <int name="default_mtu_int" value="1400"/>
++    <!-- beyond1q / AviumUI: VoLTE via the open-source ImsStack.
++         Copied verbatim from the A15 tree
++         (fengkeqei/android_packages_apps_CarrierConfig, lineage-22.2-beyond1q,
++         assets/carrier_config_carrierid_1435_China-Mobile.xml), where VoLTE
++         actually registered and placed calls (A15 WORKLOG 71r/71w).
++
++         Why this file and not res/xml/vendor.xml: carrierid assets take
++         precedence over the mccmnc fallback (A15 WORKLOG 71s.2), so a vendor.xml
++         override for MCC 460 is silently ignored on this device.
++
++         Without carrier_volte_available_bool=true,
++         ImsManager.isVolteEnabledByPlatform() is false, updateImsServiceConfig()
++         never calls turnOnIms(), ImsResolver.enableIms() never runs, and ImsStack
++         stays disabled with every MmTel capability false. -->
++    <boolean name="carrier_volte_available_bool" value="true" />
++    <boolean name="carrier_vt_available_bool" value="true" />
++    <boolean name="volte_user_setting_visibility_bool" value="true" />
++    <!-- Samsung RIL reports LteVopsSupportInfo mVopsSupport=2 (not supported)
++         even though VoPS works, and DataNetworkController refuses a
++         NET_CAPABILITY_MMTEL IMS request in that case. Asking ImsStack to
++         request the IMS PDN without the MMTEL capability bypasses that check
++         (A15 WORKLOG 71p). -->
++    <boolean name="ims.request_ims_pdn_without_mmtel_bool" value="true" />
++    <int-array name="ims.supported_rats_int_array" num="1">
++        <item value="3" />
++    </int-array>
+ </carrier_config>
+diff --git a/assets/carrier_config_carrierid_1436_China-Unicom.xml b/assets/carrier_config_carrierid_1436_China-Unicom.xml
+index dcef691..0bc3be8 100644
+--- a/assets/carrier_config_carrierid_1436_China-Unicom.xml
++++ b/assets/carrier_config_carrierid_1436_China-Unicom.xml
+@@ -1,4 +1,26 @@
+ <?xml version="1.0" encoding="utf-8" standalone="yes"?>
+ <carrier_config>
+     <boolean name="allow_emergency_numbers_in_call_log_bool" value="true"/>
++    <!-- beyond1q / AviumUI: China Unicom (46001) VoLTE via the open-source
++         ImsStack. Copied verbatim from the A15 tree
++         (fengkeqei/android_packages_apps_CarrierConfig, lineage-22.2-beyond1q,
++         assets/carrier_config_carrierid_1436_China-Unicom.xml), where VoLTE
++         registered and placed calls.
++
++         carrier_volte_available_bool is the master gate: it drives
++         ImsManager.isVolteEnabledByPlatform() -> updateImsServiceConfig() ->
++         turnOnIms() -> ImsResolver.enableIms() -> ImsStack registration. With
++         it false (the AOSP default) the stack stays disabled and no IMS PDN is
++         ever requested.
++         ims.request_ims_pdn_without_mmtel_bool bypasses the DataNetworkController
++         VoPS check: the Samsung RIL reports LteVopsSupportInfo mVopsSupport=2
++         (not supported) even though VoPS works, and DNC refuses a
++         NET_CAPABILITY_MMTEL IMS request in that case.
++         supported_rats=[3] limits IMS registration to LTE. -->
++    <boolean name="carrier_volte_available_bool" value="true" />
++    <boolean name="carrier_vt_available_bool" value="true" />
++    <boolean name="ims.request_ims_pdn_without_mmtel_bool" value="true" />
++    <int-array name="ims.supported_rats_int_array" num="1">
++        <item value="3" />
++    </int-array>
+ </carrier_config>
+diff --git a/assets/carrier_config_carrierid_2237_China-Telecom.xml b/assets/carrier_config_carrierid_2237_China-Telecom.xml
+index f398957..04f4f9e 100644
+--- a/assets/carrier_config_carrierid_2237_China-Telecom.xml
++++ b/assets/carrier_config_carrierid_2237_China-Telecom.xml
+@@ -1,6 +1,29 @@
+ <?xml version="1.0" encoding="utf-8" standalone="yes"?>
+ <carrier_config>
+     <boolean name="allow_emergency_numbers_in_call_log_bool" value="true"/>
++    <!-- beyond1q / AviumUI: China Telecom (46011) VoLTE via the open-source
++         ImsStack. Copied from the A15 tree
++         (fengkeqei/android_packages_apps_CarrierConfig, lineage-22.2-beyond1q,
++         assets/carrier_config_carrierid_2237_China-Telecom.xml), where Telecom
++         IMS registration was confirmed working (A15 WORKLOG 71z+1: "电信 IMS
++         注册成功, Media STATE_ACTIVE, QoS 注册, Voice 能力 true").
++
++         A16's stock file had none of these keys, so carrier_volte_available_bool
++         defaulted to false -> ImsManager.isVolteEnabledByPlatform()=false ->
++         updateImsServiceConfig() never called turnOnIms() -> ImsResolver never
++         called enableIms() -> ImsStack stayed disabled (all MmTel capabilities
++         false) and no IMS PDN was ever requested. -->
++    <boolean name="carrier_volte_available_bool" value="true" />
++    <boolean name="carrier_vt_available_bool" value="true" />
++    <boolean name="volte_user_setting_visibility_bool" value="true" />
++    <!-- Samsung RIL reports LteVopsSupportInfo mVopsSupport=2 (not supported)
++         even though VoPS works, and DataNetworkController refuses a
++         NET_CAPABILITY_MMTEL IMS request in that case. Bypass via the
++         without-MMTEL IMS PDN request (A15 WORKLOG 71p). -->
++    <boolean name="ims.request_ims_pdn_without_mmtel_bool" value="true" />
++    <int-array name="ims.supported_rats_int_array" num="1">
++        <item value="3" />
++    </int-array>
+     <boolean name="show_apn_setting_cdma_bool" value="true"/>
+     <string name="sim_country_iso_override_string">cn</string>
+     <boolean name="ascii_7_bit_support_for_long_message_bool" value="true"/>
+diff --git a/res/xml/vendor.xml b/res/xml/vendor.xml
+index 58a87d8..2829658 100644
+--- a/res/xml/vendor.xml
++++ b/res/xml/vendor.xml
+@@ -3,4 +3,56 @@
+      filtering rules are the same as those in carrier_config*.xml files. This
+      file is read after any specific config file from the assets folder, so it
+      must use explicit filters for MCC ad MNC if that is desired. -->
+-<carrier_config_list />
++<carrier_config_list>
++    <!-- beyond1q / AviumUI: China Mobile (MCC 460) VoLTE.
++         AOSP's carrier_config_carrierid_1435_China-Mobile.xml does not set
++         carrier_volte_available_bool, so it stays at the platform default
++         (false). ImsStack's ServiceCaps.updateServiceCapabilities() ANDs
++         isVoLteEnabledByDevice() with that value:
++             voLteEnabled = isVoLteEnabledByDevice(...)
++                            && b.getBoolean(KEY_CARRIER_VOLTE_AVAILABLE_BOOL)
++         so with it false the framework calls ImsService.disableIms() and
++         MmTel reports [Voice:false Video:false UT:false SMS:false] even
++         though ImsResolver bound com.android.imsstack correctly.
++         China Mobile runs VoLTE everywhere, so enable it for all CMCC MNCs
++         (46000/46002/46007/46008). MNC filters are exact-length here, hence
++         one entry per MNC.
++
++         ！5G 硬件不存在：beyond1q (SM-G9730) 没有 NR 射频，RadioCapability
++         上报的 raf 是 381831（bit20 = NETWORK_TYPE_BITMASK_NR 为 0）。
++         但 AOSP 的 CarrierConfigManager 默认把
++         carrier_nr_availabilities_int_array 置为 {NSA, SA}，Settings 的
++         EnabledNetworkModePreferenceController 于是把 "5G/4G/3G/2G" 之类的
++         NR 网络模式选项画出来；选中它以后框架会下发 modem 根本不支持的
++         RAF，注册直接失败。
++         每个 carrier_config 块里显式写成**空数组**即可让
++         CarrierConfigManager 判定"该运营商无 5G"，设置里的 5G 项随之消失。
++         （空数组写法是 AOSP 文档里 "carrier doesn't support 5G NR" 的
++         官方表达方式，见 KEY_CARRIER_NR_AVAILABILITIES_INT_ARRAY 注释。） -->
++    <carrier_config mcc="460" mnc="00">
++        <boolean name="carrier_volte_available_bool" value="true"/>
++        <boolean name="carrier_vt_available_bool" value="true"/>
++        <int-array name="carrier_nr_availabilities_int_array" num="0"/>
++    </carrier_config>
++    <carrier_config mcc="460" mnc="02">
++        <boolean name="carrier_volte_available_bool" value="true"/>
++        <boolean name="carrier_vt_available_bool" value="true"/>
++        <int-array name="carrier_nr_availabilities_int_array" num="0"/>
++    </carrier_config>
++    <carrier_config mcc="460" mnc="07">
++        <boolean name="carrier_volte_available_bool" value="true"/>
++        <boolean name="carrier_vt_available_bool" value="true"/>
++        <int-array name="carrier_nr_availabilities_int_array" num="0"/>
++    </carrier_config>
++    <carrier_config mcc="460" mnc="08">
++        <boolean name="carrier_volte_available_bool" value="true"/>
++        <boolean name="carrier_vt_available_bool" value="true"/>
++        <int-array name="carrier_nr_availabilities_int_array" num="0"/>
++    </carrier_config>
++    <!-- 无 MCC/MNC 过滤的兜底块：对**所有**运营商清掉 NR 能力。
++         没有这一块的话，非 CMCC 的 SIM 仍会从 AOSP 资产里拿到
++         {NSA, SA}，5G 选项又会出现。 -->
++    <carrier_config>
++        <int-array name="carrier_nr_availabilities_int_array" num="0"/>
++    </carrier_config>
++</carrier_config_list>

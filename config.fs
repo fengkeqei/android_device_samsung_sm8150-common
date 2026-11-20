@@ -89,7 +89,7 @@ value: 2901
 # already removed (v122), so any process that can execute this binary gets
 # root.
 [xbin/su]
-mode: 04750
+mode: 4755
 user: AID_ROOT
 group: AID_ROOT
 caps: 0

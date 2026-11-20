@@ -1,0 +1,37 @@
+diff --git a/logcat/logcatd.rc b/logcat/logcatd.rc
+index 7205ba43..5fafe53d 100644
+--- a/logcat/logcatd.rc
++++ b/logcat/logcatd.rc
+@@ -32,7 +32,10 @@ on load_persist_props_action
+ on property:logd.logpersistd.enable=true && property:logd.logpersistd=logcatd
+     # log group should be able to read persisted logs
+     mkdir /data/misc/logd 0750 logd log
+-    start logcatd
++    # v118: logcatd reads "-b all" and is the slow reader that makes logd
++    # emit 13k+ "Skipping entries from slow reader" warnings per boot, which
++    # evicts the whole early boot window from /proc/last_kmsg. Persistent
++    # logging is not needed for this bring-up, so it is not started.
+ 
+ # stop logcatd service and clear data
+ on property:logd.logpersistd.enable=true && property:logd.logpersistd=clear
+diff --git a/logd/logd.rc b/logd/logd.rc
+index a8fac0c2..25f2c960 100644
+--- a/logd/logd.rc
++++ b/logd/logd.rc
+@@ -3,7 +3,15 @@ service logd /system/bin/logd
+     socket logdr seqpacket 0666 logd logd
+     socket logdw dgram+passcred 0222 logd logd
+     file /proc/kmsg r
+-    file /dev/kmsg w
++    # v117: /dev/kmsg write access removed. logd reads /proc/kmsg into the
++    # log buffer and also writes its own LOG(WARNING) back to /dev/kmsg, so
++    # the "Skipping entries from slow reader" warning feeds itself: the
++    # warning lands in the buffer, the buffer fills, prune fires, another
++    # warning is emitted -- 13k+ lines per boot, every 4 ms, which evicts
++    # the entire early boot window from the kernel ring buffer and makes
++    # /proc/last_kmsg useless for diagnosing boot problems.
++    # logd still reads /proc/kmsg, so kernel messages remain in logcat;
++    # they just no longer round-trip back into the kernel ring buffer.
+     user logd
+     group logd system package_info readproc
+     capabilities SYSLOG AUDIT_CONTROL

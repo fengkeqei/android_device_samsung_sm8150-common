@@ -69,6 +69,29 @@ function blob_fixup() {
         sed -i "s/xliff=\"urn:oasis:names:tc:xliff:document:1.2\"/android=\"http:\/\/schemas.android.com\/apk\/res\/android\"/" "${2}"
         ;;
 
+    # libskeymaster4device is the Samsung keymaster TEE bridge. Its DT_NEEDED
+    # names libcrypto.so, but on this A16 port /vendor/lib64/libcrypto.so is the
+    # AOSP boringssl build, which lacks the FIPS/MDFPP provider objects, and
+    # skeymaster::CreateSKeymasterDevice(TEE) aborts on start against it. The
+    # MDFPP libcrypto the blob actually wants ships alongside it as libcrypto_gk
+    # (vendor_native_prebuilts.mk / gen_vendor_native_prebuilts.py).
+    #
+    # Repoint the dependency at that copy. "libcrypto.so" and "libcrypto_gk" are
+    # both 13 bytes, so this is an equal-length .dynstr substitution: no offsets,
+    # hashes or section sizes change and the ELF stays valid without patchelf.
+    # The blob contains exactly one occurrence; assert that so a future stock
+    # update which moves the string fails loudly instead of half-patching.
+    vendor/lib64/libskeymaster4device.so)
+        local n
+        n=$(grep -a -c 'libcrypto\.so' "${2}" || true)
+        if [ "${n}" != "1" ]; then
+            echo "!! ${1}: expected 1 'libcrypto.so' occurrence, found ${n}" >&2
+            echo "!! the equal-length .dynstr patch no longer applies; fix by hand" >&2
+            return 1
+        fi
+        perl -0777 -pi -e 's/libcrypto\.so\x00/libcrypto_gk\x00/' "${2}"
+        ;;
+
     esac
 }
 

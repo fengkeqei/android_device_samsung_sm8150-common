@@ -1,0 +1,34 @@
+diff --git a/rootdir/init.rc b/rootdir/init.rc
+index 92dcdd013..d9bceb03f 100644
+--- a/rootdir/init.rc
++++ b/rootdir/init.rc
+@@ -835,6 +835,11 @@ on post-fs-data
+     mkdir /data/misc/wifi 0770 wifi wifi
+     mkdir /data/misc/wifi/mainline_supplicant 0770 wifi wifi
+     mkdir /data/misc/wifi/mainline_supplicant/sockets 0770 wifi wifi
++    # Avium beyond1q: state dir for the system-domain wpa_supplicant twin
++    # (wpa_supplicant_avium / avium_supplicant). It cannot use
++    # /data/vendor/wifi because that path is vendor-private.
++    mkdir /data/misc/wifi/avium_supplicant 0770 wifi wifi
++    mkdir /data/misc/wifi/avium_supplicant/sockets 0770 wifi wifi
+     mkdir /data/misc/wifi/sockets 0770 wifi wifi
+     mkdir /data/misc/wifi/wpa_supplicant 0770 wifi wifi
+     mkdir /data/misc/ethernet 0770 system system
+@@ -1065,7 +1070,16 @@ on post-fs-data
+     wait_for_prop apexd.status activated
+     # Wait for KeyMints to receive APEX module info before starting code from updateable APEXes.
+     # This is to prevent APEX modules from interfering in module measurement.
+-    wait_for_prop keystore.module_hash.sent true
++    # Avium beyond1q (v132w, per HANDOVER 2.2 -- was previously done DEVICE-side
++    # only in v129 and NEVER entered the tree, so every rebuild resurrected the
++    # hang): module_hash.sent is set by keystore2 only after EVERY KeyMint
++    # get_interface succeeds. Any hiccup in the keymint chain leaves this false
++    # forever, blocking the whole post-fs-data action -> on boot never runs ->
++    # no class_start main -> no zygote, no system_server, no adb-visible boot
++    # (one-screen stall). logs15 proof: post-fs-data processed at 12:33:28.651,
++    # ZERO processing action (boot) lines ever. Attestation measurement is a
++    # nice-to-have; boot is not.
++    #wait_for_prop keystore.module_hash.sent true
+     perform_apex_config
+ 
+     start system_aconfigd_socket_service

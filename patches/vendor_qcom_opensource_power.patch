@@ -1,0 +1,105 @@
+diff --git a/Android.bp b/Android.bp
+index 60c2908..4ed0a5f 100644
+--- a/Android.bp
++++ b/Android.bp
+@@ -15,6 +15,85 @@ cc_binary {
+ 
+     vintf_fragments: ["power.xml"],
+ 
++    cflags: [
++        "-Wall",
++        "-Wextra",
++        "-Werror",
++        "-Wno-unused-parameter",
++        "-Wno-unused-variable",
++    ] + select(soong_config_variable("qtipower", "interaction_boost"), {
++        true: ["-DINTERACTION_BOOST"],
++        default: [],
++    }) + select(soong_config_variable("qtipower", "mode_ext_lib"), {
++        any @ lib: ["-DMODE_EXT"],
++        default: [],
++    }) + select(soong_config_variable("qtipower", "set_interactive_ext_lib"), {
++        any @ lib: ["-DSET_INTERACTIVE_EXT"],
++        default: [],
++    }) + select(soong_config_variable("qtipower", "tap_to_wake_node"), {
++        any @ node: ["-DTAP_TO_WAKE_NODE=\"" + node + "\""],
++        default: [],
++    }),
++
++    srcs: [
++        "power-common.c",
++        "metadata-parser.c",
++        "utils.c",
++        "list.c",
++        "hint-data.c",
++        "Power.cpp",
++        "main.cpp",
++        "PowerHintSession.cpp",
++    ] + select(soong_config_variable("ANDROID", "target_board_platform"), {
++        "msm8996": ["power-8996.c"],
++        "msm8937": ["power-8937.c"],
++        "msm8953": ["power-8953.c"],
++        "msm8998": ["power-8998.c"],
++        "sdm660": ["power-660.c"],
++        "sdm845": ["power-845.c"],
++        default: [],
++    }),
++
++    header_libs: ["libhardware_headers"],
++
++    shared_libs: [
++        "android.hardware.common-V2-ndk",
++        "android.hardware.common.fmq-V1-ndk",
++        "liblog",
++        "libcutils",
++        "libdl",
++        "libbase",
++        "libfmq",
++        "libutils",
++        "libbinder_ndk",
++    ],
++
++    static_libs: select(soong_config_variable("qtipower", "mode_ext_lib"), {
++        any @ lib: [lib],
++        default: [],
++    }) + select(soong_config_variable("qtipower", "set_interactive_ext_lib"), {
++        any @ lib: [lib],
++        default: [],
++    }),
++}
++// Avium v132bs system variant (re-created after BK rollback lost the v132bi
++// surgery). A16 bp4a has NO vendor->system AIDL bridge: a service registered
++// on the vendor servicemanager is invisible to system_server's
++// PowerHalLoader (getService2 only consults mTheRealServiceManager), so the
++// vendor-only android.hardware.power-service-qti leaves StartPowerManager in
++// a 1 s waitForService loop and boot never completes. This module is the same
++// implementation installed into /system/bin/hw, where it registers on the
++// system SM that PowerHalLoader actually consults. The vendor copy stays for
++// vendor-domain HIDL consumers (gnss@2.1-impl-qti power chain).
++cc_binary {
++    name: "android.hardware.power-service.avium",
++    defaults: [
++        "android.hardware.power-ndk_shared",
++    ],
++    init_rc: ["android.hardware.power-service.avium.rc"],
++    relative_install_path: "hw",
++
++
+     cflags: [
+         "-Wall",
+         "-Wextra",
+diff --git a/android.hardware.power-service-qti.rc b/android.hardware.power-service-qti.rc
+index 01f9e70..b321076 100644
+--- a/android.hardware.power-service-qti.rc
++++ b/android.hardware.power-service-qti.rc
+@@ -2,6 +2,10 @@ service vendor.power /vendor/bin/hw/android.hardware.power-service-qti
+     class hal
+     user system
+     group system
++    # Avium v132ak: DISABLED. It registers IPower/default on vndSM where the
++    # system-side PowerHalLoader cannot see it (no vendor-AIDL bridge in this
++    # bp4a). Superseded by /system/bin/hw/android.hardware.power-service.avium.
++    disabled
+ 
+ on post-fs
+     chmod 0664 /sys/devices/virtual/graphics/fb0/idle_time

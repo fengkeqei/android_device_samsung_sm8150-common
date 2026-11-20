@@ -1,3 +1,14 @@
+# Avium beyond1q: /sys/class/power_supply labeling note.
+#
+# The whole tree is labeled sysfs_battery by
+# device/samsung_slsi/sepolicy/common/vendor/genfs_contexts. That type is
+# vendor-private, so plat policy (where avium_health lives) cannot name it.
+# Do NOT add a genfscon here for the same path - it collides with the vendor
+# entry at policy compile time.
+#
+# avium_health reaches those nodes through the shared sysfs_type attribute
+# instead; see system/sepolicy/private/hal_health.te.
+
 # Fingerprint
 
 # Sec Touchscreen

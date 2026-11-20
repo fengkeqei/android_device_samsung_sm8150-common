@@ -1,0 +1,6 @@
+# FOD (fingerprint on display) enable for the QBT2000 under-display sensor.
+# Without this the TSP touch controller never routes touches in the sensor
+# area to the fingerprint driver, so enroll/auth never see a finger.
+# The write is volatile (sysfs), hence re-applied on every boot.
+on property:sys.boot_completed=1
+    write /sys/class/sec/tsp/cmd fod_enable,1

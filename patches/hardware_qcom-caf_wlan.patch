@@ -1,0 +1,28 @@
+diff --git a/qcwcn/config/Android.bp b/qcwcn/config/Android.bp
+index a0f4eb5..4051995 100644
+--- a/qcwcn/config/Android.bp
++++ b/qcwcn/config/Android.bp
+@@ -12,11 +12,23 @@
+ // See the License for the specific language governing permissions and
+ // limitations under the License.
+ 
++// v126: mirror the gate that hardware/broadcom/wlan/bcmdhd/config/Android.bp
++// already has. Both trees declare a prebuilt_etc named "wpa_supplicant.conf"
++// installing to $(TARGET_COPY_OUT_VENDOR)/etc/wifi, and this one used to be
++// unconditionally enabled, so switching BOARD_WLAN_DEVICE to bcmdhd produced
++//   MODULE.TARGET.ETC.wpa_supplicant.conf already defined by
++//   hardware/broadcom/wlan/bcmdhd/config
++// from kati. beyond1q is Broadcom BCM4375 (PCIe dhd), so the qcom copy must
++// stay off unless the board actually selects qcwcn.
+ prebuilt_etc {
+     name: "wpa_supplicant.conf",
+     src: ":wpa_supplicant_conf_gen",
+     sub_dir: "wifi",
+     vendor: true,
++    enabled: select(soong_config_variable("wpa_supplicant_8", "board_wlan_device"), {
++        "qcwcn": true,
++        default: false,
++    }),
+     licenses: [
+         "external_wpa_supplicant_8_license",
+     ],

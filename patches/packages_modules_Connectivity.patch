@@ -1,0 +1,49 @@
+diff --git a/bpf/loader/NetBpfLoad.cpp b/bpf/loader/NetBpfLoad.cpp
+index 238864798b..6c17d6d773 100644
+--- a/bpf/loader/NetBpfLoad.cpp
++++ b/bpf/loader/NetBpfLoad.cpp
+@@ -1619,16 +1619,17 @@ static int doLoad(char** argv, char * const envp[]) {
+ 
+     // V bumps the kernel requirement up to 4.19
+     // see also: //system/netd/tests/kernel_test.cpp TestKernel419
++    // [bringup] beyond1q 走 4.14 内核（三星 SM8150 legacy），此处降级为告警：
++    // 硬闸门会让 bpfloader 以 status 5 退出并触发 reboot_on_failure，系统无法完成启动。
+     if (isAtLeastV && !isAtLeastKernelVersion(4, 19)) {
+-        ALOGE("Android V requires kernel 4.19.");
+-        return 5;
++        ALOGW("Android V requires kernel 4.19, running on 4.14 (bringup patch).");
+     }
+ 
+     // 25Q2 bumps the kernel requirement up to 5.4
+     // see also: //system/netd/tests/kernel_test.cpp TestKernel54
++    // [bringup] 同上，降级为告警。
+     if (isAtLeast25Q2 && !isAtLeastKernelVersion(5, 4)) {
+-        ALOGE("Android 25Q2 requires kernel 5.4.");
+-        return 6;
++        ALOGW("Android 25Q2 requires kernel 5.4, running on 4.14 (bringup patch).");
+     }
+ 
+     // 25Q4 bumps the kernel requirement up to 5.10
+diff --git a/bpf/netd/BpfHandler.cpp b/bpf/netd/BpfHandler.cpp
+index 7367ec5e97..bb15eb6d55 100644
+--- a/bpf/netd/BpfHandler.cpp
++++ b/bpf/netd/BpfHandler.cpp
+@@ -97,13 +97,16 @@ static Status initPrograms(const char* cg2_path) {
+     }
+ 
+     // V bumps the kernel requirement up to 4.19
++    // [bringup] beyond1q 走 4.14 内核（三星 SM8150 legacy），此处降级为告警：
++    // 硬闸门会让 netd init 失败 abort，系统无法完成启动。
+     if (isAtLeastV && !isAtLeastKernelVersion(4, 19)) {
+-        return Status("V+ platform with kernel version < 4.19.0 is unsupported");
++        ALOGW("Android V requires kernel 4.19, running on 4.14 (bringup patch).");
+     }
+ 
+     // 25Q2 bumps the kernel requirement up to 5.4
++    // [bringup] 同上，降级为告警。
+     if (isAtLeast25Q2 && !isAtLeastKernelVersion(5, 4)) {
+-        return Status("25Q2+ platform with kernel version < 5.4.0 is unsupported");
++        ALOGW("Android 25Q2 requires kernel 5.4, running on 4.14 (bringup patch).");
+     }
+ 
+     unique_fd cg_fd(open(cg2_path, O_DIRECTORY | O_RDONLY | O_CLOEXEC));

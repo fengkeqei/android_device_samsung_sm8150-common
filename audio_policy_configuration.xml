@@ -1,0 +1,221 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  v127: audio policy for beyond1q, A16 7.0 schema.
+
+  Built incrementally from the 27-line minimal policy that is known to boot
+  (speaker only), adding exactly the pieces needed for recording and volume
+  control. The full 7.0 reference file was tried first and the HAL rejected it
+  port by port:
+
+      E AHAL_Config: convertDevicePortsInModuleToAidl: Review Audio Policy
+        config: <attachedDevices> list is incorrect or devicePort
+        "Earpiece" type= AudioDeviceDescription{type: OUT_SPEAKER_EARPIECE,
+        connection: } is incorrect.
+      F AHAL_Config: convertModuleConfigToAidl Line: 527 Failed result (BAD_VALUE)
+
+  The check in XsdcConversion.cpp:417 is
+      attached.count(port.name) != port.type.connection.empty()
+  i.e. attachedDevices must contain exactly the ports whose
+  AudioDeviceDescription has an empty connection. But some port types that pass
+  that check still make the HAL bail out (Telephony Tx was the next one), so
+  every port added here has been verified to start the HAL.
+
+  Deliberately kept: Speaker (output), Built-In Mic and Built-In Back Mic
+  (inputs, needed for recording), plus the volume includes so the media streams
+  get a non-zero Max instead of 0.
+
+  Not included yet: Earpiece, wired, BT SCO, telephony. Each needs HAL-side
+  confirmation before it can be declared.
+-->
+<audioPolicyConfiguration version="7.0" xmlns:xi="http://www.w3.org/2001/XInclude">
+    <globalConfiguration speaker_drc_enabled="true"/>
+    <modules>
+        <module name="primary" halVersion="3.0">
+            <!-- Only ports whose AudioDeviceDescription has an EMPTY
+                 connection may appear here (XsdcConversion.cpp:417:
+                 attached.count(port.name) != port.type.connection.empty()).
+                 Wired / BT ports all carry a connection ("analog" /
+                 "bt-sco" / "bt-a2dp"), so they must stay OUT of this list
+                 and are routed dynamically via setAudioPortConfig. -->
+            <attachedDevices>
+                <item>Earpiece</item>
+                <item>Speaker</item>
+                <item>Built-In Mic</item>
+                <item>Built-In Back Mic</item>
+            </attachedDevices>
+            <defaultOutputDevice>Speaker</defaultOutputDevice>
+            <mixPorts>
+                <mixPort name="primary output" role="source"
+                         flags="AUDIO_OUTPUT_FLAG_PRIMARY">
+                    <profile name="" format="AUDIO_FORMAT_PCM_16_BIT"
+                             samplingRates="48000" channelMasks="AUDIO_CHANNEL_OUT_STEREO"/>
+                </mixPort>
+                <mixPort name="deep_buffer" role="source"
+                         flags="AUDIO_OUTPUT_FLAG_DEEP_BUFFER">
+                    <profile name="" format="AUDIO_FORMAT_PCM_16_BIT"
+                             samplingRates="48000" channelMasks="AUDIO_CHANNEL_OUT_STEREO"/>
+                </mixPort>
+                <mixPort name="primary input" role="sink">
+                    <profile name="" format="AUDIO_FORMAT_PCM_16_BIT"
+                             samplingRates="8000 11025 12000 16000 22050 24000 32000 44100 48000"
+                             channelMasks="AUDIO_CHANNEL_IN_MONO AUDIO_CHANNEL_IN_STEREO AUDIO_CHANNEL_IN_FRONT_BACK"/>
+                </mixPort>
+                <!-- beyond1q: VoIP TX port. AudioPolicyManager tags every
+                     AUDIO_SOURCE_VOICE_COMMUNICATION capture with
+                     AUDIO_INPUT_FLAG_VOIP_TX (AudioPolicyManager.cpp:3259) and
+                     then needs an input mixPort that carries that flag. Without
+                     this port the IMS uplink (ImsMedia AAudio capture for
+                     VoLTE) had no matching port: the far end heard nothing
+                     while downlink worked. The A15 tree hit exactly this and
+                     its worklog notes "without voip_tx the uplink stayed muted
+                     (Round 71h..71z)". The vendor HAL maps the flag to its
+                     dedicated VoIP front-end. -->
+                <mixPort name="voip_tx" role="sink" flags="AUDIO_INPUT_FLAG_VOIP_TX">
+                    <profile name="" format="AUDIO_FORMAT_PCM_16_BIT"
+                             samplingRates="8000 16000 32000 48000"
+                             channelMasks="AUDIO_CHANNEL_IN_MONO"/>
+                </mixPort>
+            </mixPorts>
+            <devicePorts>
+                <!-- beyond1q: the handset earpiece. Without this port the audio
+                     policy only offers Speaker, so every in-call route lands on
+                     the loudspeaker and the in-call UI cannot switch to
+                     earpiece. StreamLegacy::mapDevice maps OUT_SPEAKER_EARPIECE
+                     to AUDIO_DEVICE_OUT_EARPIECE, so the legacy blob gets the
+                     right device.
+                     NOTE: this port's AudioDeviceDescription has an EMPTY
+                     connection, which means it MUST also appear in
+                     <attachedDevices>. XsdcConversion.cpp:417 enforces
+                     attached.count(name) == connection.empty(), and a port
+                     present in devicePorts but missing from attachedDevices
+                     makes the whole policy fail to load with BAD_VALUE. -->
+                <devicePort tagName="Earpiece" role="sink"
+                            type="AUDIO_DEVICE_OUT_EARPIECE" address="">
+                    <profile name="" format="AUDIO_FORMAT_PCM_16_BIT"
+                             samplingRates="48000" channelMasks="AUDIO_CHANNEL_OUT_MONO"/>
+                </devicePort>
+                <devicePort tagName="Speaker" role="sink" type="AUDIO_DEVICE_OUT_SPEAKER" address="">
+                    <profile name="" format="AUDIO_FORMAT_PCM_16_BIT"
+                             samplingRates="48000" channelMasks="AUDIO_CHANNEL_OUT_STEREO"/>
+                    <gains>
+                        <gain name="gain_1" mode="AUDIO_GAIN_MODE_JOINT"
+                              minValueMB="-8400" maxValueMB="4000"
+                              defaultValueMB="0" stepValueMB="100"/>
+                    </gains>
+                </devicePort>
+                <devicePort tagName="Wired Headphones" role="sink"
+                            type="AUDIO_DEVICE_OUT_WIRED_HEADPHONE" address="">
+                    <profile name="" format="AUDIO_FORMAT_PCM_16_BIT"
+                             samplingRates="44100 48000" channelMasks="AUDIO_CHANNEL_OUT_STEREO"/>
+                </devicePort>
+                <devicePort tagName="Wired Headset" role="sink"
+                            type="AUDIO_DEVICE_OUT_WIRED_HEADSET" address="">
+                    <profile name="" format="AUDIO_FORMAT_PCM_16_BIT"
+                             samplingRates="44100 48000" channelMasks="AUDIO_CHANNEL_OUT_STEREO"/>
+                </devicePort>
+                <devicePort tagName="Wired Headset Mic" type="AUDIO_DEVICE_IN_WIRED_HEADSET" role="source">
+                    <profile name="" format="AUDIO_FORMAT_PCM_16_BIT"
+                             samplingRates="8000 11025 12000 16000 22050 24000 32000 44100 48000"
+                             channelMasks="AUDIO_CHANNEL_IN_MONO AUDIO_CHANNEL_IN_STEREO"/>
+                </devicePort>
+                <devicePort tagName="Built-In Mic" type="AUDIO_DEVICE_IN_BUILTIN_MIC" role="source">
+                    <profile name="" format="AUDIO_FORMAT_PCM_16_BIT"
+                             samplingRates="8000 11025 12000 16000 22050 24000 32000 44100 48000"
+                             channelMasks="AUDIO_CHANNEL_IN_MONO AUDIO_CHANNEL_IN_STEREO AUDIO_CHANNEL_IN_FRONT_BACK"/>
+                </devicePort>
+                <devicePort tagName="Built-In Back Mic" type="AUDIO_DEVICE_IN_BACK_MIC" role="source">
+                    <profile name="" format="AUDIO_FORMAT_PCM_16_BIT"
+                             samplingRates="8000 11025 12000 16000 22050 24000 32000 44100 48000"
+                             channelMasks="AUDIO_CHANNEL_IN_MONO AUDIO_CHANNEL_IN_STEREO AUDIO_CHANNEL_IN_FRONT_BACK"/>
+                </devicePort>
+                <!-- beyond1q: HFP/SCO. Without these two ports the policy has
+                     no Bluetooth SCO device at all, so AudioPolicyManager can
+                     never select the headset for a call: Telecom's
+                     setCommunicationDevice(BT_SCO) finds it unavailable and
+                     in-call audio stays on the earpiece even though the
+                     headset is connected. The legacy blob's select_devices()
+                     still needs the "Bt Sco All" sink on the primary module
+                     (SCO audio flows through audio.primary.msmnile.so, not
+                     through ModuleBluetooth, which only does A2DP/LE).
+                     Rates 8k/16k are the HFP narrow/wideband rates; the HAL
+                     resamples from the 48k mix. -->
+                <devicePort tagName="Bt Sco All" role="sink"
+                            type="AUDIO_DEVICE_OUT_BLUETOOTH_SCO_HEADSET">
+                    <profile name="" format="AUDIO_FORMAT_PCM_16_BIT"
+                             samplingRates="8000 16000 44100 48000"
+                             channelMasks="AUDIO_CHANNEL_OUT_STEREO"/>
+                </devicePort>
+                <devicePort tagName="Bt Sco Headset Mic" type="AUDIO_DEVICE_IN_BLUETOOTH_SCO_HEADSET"
+                            role="source">
+                    <profile name="" format="AUDIO_FORMAT_PCM_16_BIT"
+                             samplingRates="8000 11025 12000 16000 22050 24000 32000 44100 48000"
+                             channelMasks="AUDIO_CHANNEL_IN_MONO AUDIO_CHANNEL_IN_STEREO AUDIO_CHANNEL_IN_FRONT_BACK"/>
+                </devicePort>
+            </devicePorts>
+            <routes>
+                <route type="mix" sink="Earpiece" sources="primary output,deep_buffer"/>
+                <route type="mix" sink="Speaker" sources="primary output,deep_buffer"/>
+                <route type="mix" sink="Wired Headphones" sources="primary output,deep_buffer"/>
+                <route type="mix" sink="Wired Headset" sources="primary output,deep_buffer"/>
+                <route type="mix" sink="Bt Sco All" sources="primary output,deep_buffer"/>
+                <route type="mix" sink="primary input"
+                       sources="Built-In Mic,Built-In Back Mic,Wired Headset Mic,Bt Sco Headset Mic"/>
+                <route type="mix" sink="voip_tx"
+                       sources="Built-In Mic,Built-In Back Mic,Wired Headset Mic,Bt Sco Headset Mic"/>
+            </routes>
+        </module>
+
+
+        <!-- Bluetooth audio module. MUST be a separate module: the AIDL audio
+             HAL instantiates ModuleBluetooth from this entry, and its
+             constructor is what registers
+             android.hardware.bluetooth.audio.IBluetoothAudioProviderFactory.
+             Without it the Bluetooth stack blocks forever in
+             "Waited one second for ...IBluetoothAudioProviderFactory/default"
+             and can neither scan, pair nor unpair. -->
+        <module name="bluetooth" halVersion="2.0">
+            <mixPorts>
+                <mixPort name="a2dp output" role="source"/>
+                <mixPort name="hearing aid output" role="source">
+                    <profile name="" format="AUDIO_FORMAT_PCM_16_BIT"
+                             samplingRates="24000,16000"
+                             channelMasks="AUDIO_CHANNEL_OUT_STEREO"/>
+                </mixPort>
+            </mixPorts>
+            <devicePorts>
+                <devicePort tagName="BT A2DP Out" type="AUDIO_DEVICE_OUT_BLUETOOTH_A2DP" role="sink">
+                    <profile name="" format="AUDIO_FORMAT_PCM_16_BIT"
+                             samplingRates="44100,48000,88200,96000"
+                             channelMasks="AUDIO_CHANNEL_OUT_STEREO"/>
+                </devicePort>
+                <devicePort tagName="BT A2DP Headphones" type="AUDIO_DEVICE_OUT_BLUETOOTH_A2DP_HEADPHONES" role="sink">
+                    <profile name="" format="AUDIO_FORMAT_PCM_16_BIT"
+                             samplingRates="44100,48000,88200,96000"
+                             channelMasks="AUDIO_CHANNEL_OUT_STEREO"/>
+                </devicePort>
+                <devicePort tagName="BT A2DP Speaker" type="AUDIO_DEVICE_OUT_BLUETOOTH_A2DP_SPEAKER" role="sink">
+                    <profile name="" format="AUDIO_FORMAT_PCM_16_BIT"
+                             samplingRates="44100,48000,88200,96000"
+                             channelMasks="AUDIO_CHANNEL_OUT_STEREO"/>
+                </devicePort>
+                <devicePort tagName="BT Hearing Aid Out" type="AUDIO_DEVICE_OUT_HEARING_AID" role="sink"/>
+            </devicePorts>
+            <routes>
+                <route type="mix" sink="BT A2DP Out" sources="a2dp output"/>
+                <route type="mix" sink="BT A2DP Headphones" sources="a2dp output"/>
+                <route type="mix" sink="BT A2DP Speaker" sources="a2dp output"/>
+                <route type="mix" sink="BT Hearing Aid Out" sources="hearing aid output"/>
+            </routes>
+        </module>
+
+        <xi:include href="usb_audio_policy_configuration.xml"/>
+        <xi:include href="r_submix_audio_policy_configuration.xml"/>
+    </modules>
+
+    <!-- Volume curves: without these AudioService reports Max: 0 for the media
+         streams and the volume keys do nothing. -->
+    <xi:include href="audio_policy_volumes.xml"/>
+    <xi:include href="default_volume_tables.xml"/>
+
+    <xi:include href="surround_sound_configuration_5_0.xml"/>
+</audioPolicyConfiguration>

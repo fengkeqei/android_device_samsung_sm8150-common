@@ -1,0 +1,393 @@
+diff --git a/aidl/fingerprint/Session.cpp b/aidl/fingerprint/Session.cpp
+index fcc8bd0..d6a3d68 100644
+--- a/aidl/fingerprint/Session.cpp
++++ b/aidl/fingerprint/Session.cpp
+@@ -15,6 +15,8 @@
+ 
+ #include <dirent.h>
+ #include <endian.h>
++#include <signal.h>
++
+ #include <thread>
+ 
+ using namespace ::android::fingerprint::samsung;
+@@ -78,6 +80,16 @@ ndk::ScopedAStatus Session::enroll(const HardwareAuthToken& hat,
+     // and a failed key negotiation (AuthHat_Decap_Key) must not wedge the
+     // framework scheduler (WORKLOG Round 71 deadlock).
+     std::thread([this, authToken]() {
++        // The vendor library blocks inside read(/dev/qbt2000_fd) while it
++        // waits for the sensor interrupt (TEE opcode WAIT_INTERRUPT). If any
++        // signal is delivered to this thread the read() fails with EINTR and
++        // the whole enroll aborts ("BAuthDeviceWaitInt sys call failed : 4").
++        // The thread is created from a binder thread whose mask only blocks
++        // one RT signal, so mask everything here.
++        sigset_t allSignals;
++        sigfillset(&allSignals);
++        pthread_sigmask(SIG_BLOCK, &allSignals, nullptr);
++
+         if (FingerprintHalProperties::force_calibrate().value_or(false)) {
+             mCaptureReady = false;
+             mHal.request(SEM_REQUEST_FORCE_CBGE, 1);
+@@ -91,14 +103,17 @@ ndk::ScopedAStatus Session::enroll(const HardwareAuthToken& hat,
+         }
+ 
+         if (FingerprintHalProperties::force_calibrate().value_or(false)) {
+-            // bounded wait for the calibration capture (15s); capture-ready
+-            // never arrives when the sensor interrupt enable failed.
++            // Bounded wait for the calibration capture. Do NOT abort the
++            // enrollment when it does not arrive: the TEE-side enroll is
++            // still armed and the framework's own timeout (60s in
++            // FingerprintEnrollClient) decides. Aborting here turned a slow
++            // first capture into an immediate "couldn't finish setup".
+             for (int i = 0; i < 150 && !mCaptureReady; i++) {
+                 std::this_thread::sleep_for(100ms);
+             }
+             if (!mCaptureReady) {
+-                LOG(ERROR) << "calibration capture wait timed out";
+-                mCb->onError(Error::UNABLE_TO_PROCESS, 0);
++                LOG(WARNING) << "calibration capture did not arrive within 15s;"
++                             << " leaving enrollment to the framework timeout";
+             }
+         }
+     }).detach();
+diff --git a/aidl/fingerprint/android.hardware.biometrics.fingerprint-service.samsung.rc b/aidl/fingerprint/android.hardware.biometrics.fingerprint-service.samsung.rc
+index 1bfc073..a1956c5 100644
+--- a/aidl/fingerprint/android.hardware.biometrics.fingerprint-service.samsung.rc
++++ b/aidl/fingerprint/android.hardware.biometrics.fingerprint-service.samsung.rc
+@@ -1,5 +1,19 @@
+ service vendor.fingerprint-default /vendor/bin/hw/android.hardware.biometrics.fingerprint-service.samsung
+     class late_start
+     user system
+-    group system input uhid
++    # drmrpc (gid 1026) is REQUIRED: /dev/qseecom is system:drmrpc, and the
++    # Samsung fingerprint HAL opens it to start the authhat TA. Without the
++    # group the TA never starts, BAuth_GetK_From_KM falls back to a non-TEE
++    # key, and every enrollment dies with
++    #   E bauth_FPBAuthService: BAuth_Hat_OP fail rv : 28
++    group system input uhid drmrpc
+     shutdown critical
++    # Avium beyond1q: this binary is built with vendor:true, but it must
++    # register its AIDL HAL on the SYSTEM servicemanager (/dev/binder) so that
++    # system_server can see IFingerprint/default. A vendor-built libbinder
++    # writes the "VNDR" parcel wire-format header, which the system
++    # servicemanager rejects ("Mixing copies of libbinder?" -> addService
++    # returns -129). Putting /system/lib64 first in the library search path
++    # makes the process resolve the system libbinder ("SYST" header) instead,
++    # and the HAL registers cleanly. Verified on device RF8N32EV43X.
++    env LD_LIBRARY_PATH /system/lib64:/vendor/lib64
+diff --git a/aidl/fingerprint/service.cpp b/aidl/fingerprint/service.cpp
+index e904e9a..1b6068a 100644
+--- a/aidl/fingerprint/service.cpp
++++ b/aidl/fingerprint/service.cpp
+@@ -4,6 +4,13 @@
+  * SPDX-License-Identifier: Apache-2.0
+  */
+ 
++// Avium beyond1q: android::base derives the log tag from the source file name
++// when LOG_TAG is unset, so every line here landed under "service.cpp" and was
++// impossible to filter alongside the HAL's own output. Name it after the
++// service so `logcat -s fingerprint-hal` shows the whole chain. Must be defined
++// before <android-base/logging.h>, which captures it at include time.
++#define LOG_TAG "fingerprint-hal"
++
+ #include "Fingerprint.h"
+ 
+ #include <android/binder_manager.h>
+@@ -12,13 +19,33 @@
+ 
+ using ::aidl::android::hardware::biometrics::fingerprint::Fingerprint;
+ 
+-int main() {
++int main(int argc, char** argv) {
++    // Avium beyond1q: without this the process' LOG() output never reaches
++    // logd. init runs the service with stderr on /dev/null, and android::base
++    // defaults to stderr until InitLogging() redirects it to the log socket, so
++    // every LOG(INFO) in LegacyHAL (openHal results, init_requests, request())
++    // was silently dropped -- which made the fingerprint key chain
++    // undiagnosable. KernelLogger also mirrors to /dev/kmsg, which survives a
++    // logd restart.
++    android::base::InitLogging(argv, android::base::KernelLogger);
++
+     ABinderProcess_setThreadPoolMaxThreadCount(0);
+     std::shared_ptr<Fingerprint> fingerprint = ndk::SharedRefBase::make<Fingerprint>();
+ 
+     const std::string instance = std::string() + Fingerprint::descriptor + "/default";
+     binder_status_t status = AServiceManager_addService(fingerprint->asBinder().get(), instance.c_str());
+-    CHECK(status == STATUS_OK);
++    // Avium beyond1q: never abort on a failed registration. A SIGABRT here is
++    // fatal for the whole device: init counts restarts, flags the service as
++    // UPDATABLE_CRASHING and then restarts every other updatable service
++    // (ril-daemon included), which tears down the modem link. The expected
++    // failure mode is -129 (EX_TRANSACTION_FAILED) when this vendor binary
++    // resolves the VNDK libbinder ("VNDR" parcel header) instead of the system
++    // one ("SYST"); the rc file pins LD_LIBRARY_PATH to fix exactly that on the
++    // next boot, so a soft failure here only means "HAL not up this boot".
++    if (status != STATUS_OK) {
++        LOG(ERROR) << "AServiceManager_addService(" << instance << ") failed: " << status
++                   << " -- staying alive without a registered HAL";
++    }
+ 
+     ABinderProcess_joinThreadPool();
+     return EXIT_FAILURE; // should not reach
+diff --git a/hidl/fastcharge/Android.bp b/hidl/fastcharge/Android.bp
+deleted file mode 100644
+index 51b681e..0000000
+--- a/hidl/fastcharge/Android.bp
++++ /dev/null
+@@ -1,36 +0,0 @@
+-//
+-// Copyright (C) 2024 The LineageOS Project
+-//
+-// Licensed under the Apache License, Version 2.0 (the "License");
+-// you may not use this file except in compliance with the License.
+-// You may obtain a copy of the License at
+-//
+-//      http://www.apache.org/licenses/LICENSE-2.0
+-//
+-// Unless required by applicable law or agreed to in writing, software
+-// distributed under the License is distributed on an "AS IS" BASIS,
+-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+-// See the License for the specific language governing permissions and
+-// limitations under the License.
+-//
+-
+-cc_binary {
+-    name: "vendor.lineage.fastcharge@1.0-service.samsung",
+-    defaults: ["samsung_header_path_defaults"],
+-    relative_install_path: "hw",
+-    init_rc: ["vendor.lineage.fastcharge@1.0-service.samsung.rc"],
+-    vintf_fragments: ["vendor.lineage.fastcharge@1.0-service.samsung.xml"],
+-    srcs: [
+-        "FastCharge.cpp",
+-        "service.cpp",
+-    ],
+-    shared_libs: [
+-        "libbase",
+-        "libbinder",
+-        "libcutils",
+-        "libhidlbase",
+-        "libutils",
+-        "vendor.lineage.fastcharge@1.0",
+-    ],
+-    vendor: true,
+-}
+diff --git a/hidl/livedisplay/Android.bp b/hidl/livedisplay/Android.bp
+deleted file mode 100644
+index b6e71c7..0000000
+--- a/hidl/livedisplay/Android.bp
++++ /dev/null
+@@ -1,65 +0,0 @@
+-//
+-// SPDX-FileCopyrightText: 2019-2025 The LineageOS Project
+-// SPDX-License-Identifier: Apache-2.0
+-//
+-
+-filegroup {
+-    name: "vendor.lineage.livedisplay-samsung-exynos",
+-    srcs: [
+-        "AdaptiveBacklight.cpp",
+-        "DisplayColorCalibration.cpp",
+-        "DisplayModes.cpp",
+-        "ReadingEnhancementExynos.cpp",
+-        "SunlightEnhancementExynos.cpp",
+-        "serviceExynos.cpp",
+-    ],
+-}
+-
+-filegroup {
+-    name: "vendor.lineage.livedisplay-samsung-qcom",
+-    srcs: [
+-        "AdaptiveBacklight.cpp",
+-        "DisplayColorCalibration.cpp",
+-        "DisplayModes.cpp",
+-        "SunlightEnhancement.cpp",
+-        "service.cpp",
+-    ],
+-}
+-
+-cc_defaults {
+-    name: "livedisplay_samsung_defaults",
+-    defaults: ["hidl_defaults"],
+-    relative_install_path: "hw",
+-    shared_libs: [
+-        "libbase",
+-        "libbinder",
+-        "libhidlbase",
+-        "libutils",
+-        "vendor.lineage.livedisplay@2.0",
+-    ],
+-    header_libs: [
+-        "vendor.lineage.livedisplay-samsung-headers",
+-    ],
+-}
+-
+-cc_library_headers {
+-    name: "vendor.lineage.livedisplay-samsung-headers",
+-    vendor_available: true,
+-    export_include_dirs: ["include"],
+-}
+-
+-cc_binary {
+-    name: "vendor.lineage.livedisplay@2.0-service.samsung-exynos",
+-    defaults: ["livedisplay_samsung_defaults"],
+-    init_rc: ["vendor.lineage.livedisplay@2.0-service.samsung-exynos.rc"],
+-    srcs: [":vendor.lineage.livedisplay-samsung-exynos"],
+-    vendor: true,
+-}
+-
+-cc_binary {
+-    name: "vendor.lineage.livedisplay@2.0-service.samsung-qcom",
+-    defaults: ["livedisplay_samsung_defaults"],
+-    init_rc: ["vendor.lineage.livedisplay@2.0-service.samsung-qcom.rc"],
+-    srcs: [":vendor.lineage.livedisplay-samsung-qcom"],
+-    vendor: true,
+-}
+diff --git a/hidl/vibrator/haptic/Android.bp b/hidl/vibrator/haptic/Android.bp
+deleted file mode 100644
+index 8d8f4b3..0000000
+--- a/hidl/vibrator/haptic/Android.bp
++++ /dev/null
+@@ -1,33 +0,0 @@
+-// Copyright (C) 2019 The LineageOS Project
+-//
+-// Licensed under the Apache License, Version 2.0 (the "License");
+-// you may not use this file except in compliance with the License.
+-// You may obtain a copy of the License at
+-//
+-//      http://www.apache.org/licenses/LICENSE-2.0
+-//
+-// Unless required by applicable law or agreed to in writing, software
+-// distributed under the License is distributed on an "AS IS" BASIS,
+-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+-// See the License for the specific language governing permissions and
+-// limitations under the License.
+-
+-cc_binary {
+-    name: "android.hardware.vibrator@1.0-service.samsung-haptic",
+-    defaults: ["hidl_defaults"],
+-    vendor: true,
+-    relative_install_path: "hw",
+-    init_rc: ["android.hardware.vibrator@1.0-service.samsung-haptic.rc"],
+-    srcs: [
+-        "service.cpp",
+-        "Vibrator.cpp",
+-    ],
+-    shared_libs: [
+-        "libbase",
+-        "libhidlbase",
+-        "liblog",
+-        "libutils",
+-        "libhardware",
+-        "android.hardware.vibrator@1.0",
+-    ],
+-}
+diff --git a/ril/sehradiomanager/sehradiomanager.cpp b/ril/sehradiomanager/sehradiomanager.cpp
+index d2318bb..8159b35 100644
+--- a/ril/sehradiomanager/sehradiomanager.cpp
++++ b/ril/sehradiomanager/sehradiomanager.cpp
+@@ -12,6 +12,8 @@
+ #include "hidl/SehRadioResponse.h"
+ 
+ #include <thread>
++#include <memory>
++#include <vector>
+ 
+ #include <android-base/file.h>
+ #include <android-base/logging.h>
+@@ -92,6 +94,22 @@ int main() {
+     }
+ 
+     int slotCount = GetIntProperty("ro.vendor.multisim.simslotcount", 1);
++
++    // Avium beyond1q: the indication/response objects must outlive the loop
++    // body. When they were plain locals they were destroyed at the end of each
++    // iteration while rild kept raw pointers to them (setResponseFunction /
++    // setResponseFunctions only store the pointer), so the first callback rild
++    // made -- setVendorSpecificConfigurationResponse -- dereferenced freed
++    // memory and the process died with SIGSEGV (null pointer dereference in
++    // BnHwSehRadioResponse::_hidl_setVendorSpecificConfigurationResponse).
++    // Keeping strong references for the process lifetime fixes the crash that
++    // prevented RIL_RegisterSehBridge from ever completing, which in turn left
++    // mSehBridgeIndication == NULL and stopped the modem from searching.
++    std::vector<sp<SehRadioResponse>> hidlResponses;
++    std::vector<sp<SehRadioIndication>> hidlIndications;
++    std::vector<std::shared_ptr<SehRadioNetworkResponse>> aidlResponses;
++    std::vector<std::shared_ptr<SehRadioNetworkIndication>> aidlIndications;
++
+     for (int slot = 1; slot <= slotCount; slot++) {
+         auto slotName = "slot" + std::to_string(slot);
+         auto aidlSvcName = std::string(ISehRadioNetwork::descriptor) + "/" + slotName;
+@@ -99,6 +117,8 @@ int main() {
+             auto config = LoadConfiguration<AidlVendorConfig>(content);
+             auto samsungIndication = ndk::SharedRefBase::make<SehRadioNetworkIndication>();
+             auto samsungResponse = ndk::SharedRefBase::make<SehRadioNetworkResponse>();
++            aidlIndications.push_back(samsungIndication);
++            aidlResponses.push_back(samsungResponse);
+             auto svc = ISehRadioNetwork::fromBinder(
+                     ndk::SpAIBinder(AServiceManager_waitForService(aidlSvcName.c_str())));
+             svc->setResponseFunctions(samsungResponse, samsungIndication);
+@@ -109,9 +129,20 @@ int main() {
+             auto config = LoadConfiguration<SehVendorConfiguration>(content);
+             auto samsungIndication = sp<SehRadioIndication>::make();
+             auto samsungResponse = sp<SehRadioResponse>::make();
++            hidlIndications.push_back(samsungIndication);
++            hidlResponses.push_back(samsungResponse);
+             auto svc = ISehRadio::getService(slotName);
+             svc->setResponseFunction(samsungResponse, samsungIndication);
+-            svc->setVendorSpecificConfiguration(0x3232, hidl_vec(config));
++            // Avium beyond1q: skip setVendorSpecificConfiguration for now.
++            // rild answers that call with a setVendorSpecificConfigurationResponse
++            // transaction that crashes inside the generated HIDL stub
++            // (BnHwSehRadioResponse::_hidl_setVendorSpecificConfigurationResponse,
++            // SIGSEGV at fault addr 0x0). The vendor config it carries is
++            // optional (this service falls back to FW_READY=1 defaults), and
++            // registering the response function alone is what makes rild's
++            // mSehBridgeIndication non-NULL, so the bridge works without it.
++            // svc->setVendorSpecificConfiguration(0x3232, hidl_vec(config));
++            (void)config;
+             svc->linkToDeath(gHidlHalDeathRecipient, 0);
+             svc->incStrong(gHidlHalDeathRecipient.get());
+         }
+diff --git a/ril/sehradiomanager/sehradiomanager.rc b/ril/sehradiomanager/sehradiomanager.rc
+index 46d4247..68ebb2e 100644
+--- a/ril/sehradiomanager/sehradiomanager.rc
++++ b/ril/sehradiomanager/sehradiomanager.rc
+@@ -4,5 +4,38 @@ service vendor.sehradiomanager /vendor/bin/hw/sehradiomanager
+     group radio
+     disabled
+ 
++# Avium beyond1q: start as soon as rild has published ISehRadio, not at
++# sys.boot_completed.
++#
++# rild's SecRil::Init pushes internal request 111 and then calls
++# RIL_RegisterSehBridge, which creates the SehBridgeImpl and installs it in
++# sehBridgeService[]. The indication pointer inside that object only becomes
++# non-NULL once a client calls setResponseFunction, i.e. once this service has
++# run. Starting at boot_completed was far too late: rild begins emitting
++# secOemNoti unsolicited responses within ~400ms of init, so every one logged
++#   E RILC: secOemNoti: sehBridgeService[0]->mSehBridgeIndication == NULL
++# and the modem never received the vendor-side notifications it needs to start
++# a network search.
++#
++# DO NOT use `exec_start` here. exec_start runs the program to completion
++# synchronously and blocks init; this service is a long-running daemon (no
++# oneshot), so `on late-init exec_start vendor.sehradiomanager` wedges init
++# inside the late-init action forever. class_start main never runs, zygote is
++# never forked, and the device sits on the boot animation with no adb. That is
++# exactly what an earlier revision of this file caused.
++#
++# `start` is asynchronous and returns immediately, which is what a daemon
++# needs. `disabled` keeps it out of the class_start main batch so the two
++# property triggers below control the timing.
++#
++# on property:init.svc.ril-daemon=running fires as soon as rild has registered
++# its HIDL services, which is the earliest point ISehRadio/slot1 resolves.
++# The boot_completed trigger stays as a fallback.
++on property:init.svc.ril-daemon=running
++    start vendor.sehradiomanager
++
++on property:init.svc.ril-daemon1=running
++    start vendor.sehradiomanager
++
+ on property:sys.boot_completed=1
+     start vendor.sehradiomanager

@@ -1,0 +1,18 @@
+<manifest version="1.0" type="device">
+    <!-- v124: soundtrigger@2.0 instance.
+         DefaultHalFactory imports V2_0.ISoundTriggerHw and calls
+         getService(true), which retries forever. Without this declaration
+         StartSoundTriggerMiddlewareService never returns and boot_completed
+         is never set. The @2.1 entry stays in the main manifest for
+         compatibility; this fragment adds the @2.0 instance the framework
+         actually asks for. -->
+    <hal format="hidl">
+        <name>android.hardware.soundtrigger</name>
+        <transport>hwbinder</transport>
+        <version>2.0</version>
+        <interface>
+            <name>ISoundTriggerHw</name>
+            <instance>default</instance>
+        </interface>
+    </hal>
+</manifest>

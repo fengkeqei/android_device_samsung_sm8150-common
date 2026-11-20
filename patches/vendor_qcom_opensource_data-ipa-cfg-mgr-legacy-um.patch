@@ -1,0 +1,73 @@
+diff --git a/ipacm/Android.bp b/ipacm/Android.bp
+index e7ee6616..08568701 100644
+--- a/ipacm/Android.bp
++++ b/ipacm/Android.bp
+@@ -2,6 +2,23 @@
+ cc_binary {
+     name: "ipacm",
+ 
++    // Avium beyond1q: this source module does not compile against A16 bionic.
++    // Both it and its libipanat dependency pull in qti_kernel_headers, whose
++    // linux/sched/types.h defines `struct sched_param` and collides with the
++    // identical definition in bionic's sched.h:
++    //   ipa_nat_drv.c -> ipa_nat_drvi.h -> pthread.h -> sched.h:99
++    //   error: redefinition of 'sched_param'
++    // The port ships the stock binary instead (see avium_ipacm in
++    // vendor/samsung/sm8150-common/Android.bp, which installs to the same
++    // /vendor/bin/ipacm path).
++    //
++    // installable: false is what keeps this module out of
++    // out/soong/installs-lineage_beyond1q.mk. Without it, merely being a
++    // vendor: true module puts an install rule for /vendor/bin/ipacm in the
++    // manifest, which collides with avium_ipacm's and aborts kati with
++    //   error: overriding commands for target `.../vendor/bin/ipacm'
++    installable: false,
++
+     local_include_dirs: ["src"] + ["inc"],
+ 	header_libs: ["qti_kernel_headers"],
+ 
+@@ -36,7 +53,18 @@ cc_binary {
+         "src/IPACM_LanToLan.cpp",
+     ],
+ 
+-    init_rc: ["src/ipacm.rc"],
++    // Avium beyond1q: init_rc is deliberately not declared here.
++    //
++    // installable: false stops this module's binary from being installed, but
++    // it does not stop init_rc: Soong tracks rc installs in a separate global
++    // map (katiInitRcInstalls) and emits an install rule for
++    // /vendor/etc/init/ipacm.rc regardless. That collides with the rc this port
++    // ships from sm8150-common-vendor.mk and aborts kati with
++    //   error: overriding commands for target `.../etc/init/ipacm.rc'
++    // The rc file itself is unchanged and still lives at src/ipacm.rc; it is
++    // installed by the PRODUCT_COPY_FILES line in sm8150-common-vendor.mk,
++    // which uses the same source file (a copy under
++    // vendor/samsung/sm8150-common/proprietary/) so the two cannot drift.
+     vendor: true,
+ 
+     shared_libs: [
+diff --git a/ipanat/Android.bp b/ipanat/Android.bp
+index be922981..9477888a 100644
+--- a/ipanat/Android.bp
++++ b/ipanat/Android.bp
+@@ -3,6 +3,20 @@
+ cc_library_shared {
+     name: "libipanat",
+ 
++    // Avium beyond1q: does not compile against A16 bionic. The qti_kernel_headers
++    // include linux/sched/types.h, which defines `struct sched_param` and
++    // collides with the identical definition in bionic's sched.h:
++    //   ipa_nat_drv.c -> ipa_nat_drvi.h -> pthread.h -> sched.h:99
++    //   error: redefinition of 'sched_param'
++    // The port ships the stock libipanat.so instead (avium_stock_lib64_libipanat_so
++    // in vendor_native_prebuilts.mk, force-installed via gen_vendor_native_prebuilts.py).
++    //
++    // installable: false is what removes the /vendor/lib64/libipanat.so rule from
++    // out/soong/installs-lineage_beyond1q.mk. Without it that rule survives and
++    // points at an intermediate this module can never produce, so Kati aborts
++    // with "overriding commands for target .../libipanat.so" against the prebuilt.
++    installable: false,
++
+     header_libs: ["qti_kernel_headers"],
+ 
+     srcs: [

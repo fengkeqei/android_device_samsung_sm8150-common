@@ -1,0 +1,14 @@
+// [bring-up] ABI shim that re-adds the OpenSSL-era CBS_init() symbol that
+// BoringSSL turned into a static inline. See libcbs_shim.cpp for the full
+// story. Installed to /vendor/lib[64] and pulled in by the widevine service.
+cc_library_shared {
+    name: "libcbs_shim",
+    vendor: true,
+    srcs: ["libcbs_shim.cpp"],
+    cflags: [
+        "-Wall",
+        "-Wextra",
+        "-Wno-unused-parameter",
+    ],
+    visibility: ["//device/samsung:__subpackages__"],
+}

@@ -15,6 +15,7 @@
 set -euo pipefail
 
 IMG=${1:-out/target/product/beyond1q/vendor.img}
+CONV_LINKER_CONFIG=${CONV_LINKER_CONFIG:-out/host/linux-x86/bin/conv_linker_config}
 STAGE=out/target/product/beyond1q/vendor
 SYSSTAGE=out/target/product/beyond1q/system
 STOCK=device/samsung/sm8150-common/vendor_libs
@@ -54,24 +55,42 @@ resolve_and_install() {
     # Vendor HAL services exist in both 32- and 64-bit flavours (widevine and
     # the Samsung camera provider are 32-bit; most others are 64-bit), so install
     # every available bitness. 64-bit first, then the 32-bit twin.
-    if [ -f "$STAGE/lib64/$lib" ]; then
-        install_lib "$STAGE/lib64/$lib" "/lib64/$lib"; got=1
-    elif [ -f "$SYSSTAGE/lib64/$lib" ]; then
-        install_lib "$SYSSTAGE/lib64/$lib" "/lib64/$lib"; got=1
-    elif [ -f "$PROP/lib64/$lib" ]; then
-        install_lib "$PROP/lib64/$lib" "/lib64/$lib"; got=1
-    elif [ -f "$STOCK/lib64/$lib" ]; then
-        install_lib "$STOCK/lib64/$lib" "/lib64/$lib"; got=1
-    fi
-    if [ -f "$STAGE/lib/$lib" ]; then
-        install_lib "$STAGE/lib/$lib" "/lib/$lib"; got=1
-    elif [ -f "$SYSSTAGE/lib/$lib" ]; then
-        install_lib "$SYSSTAGE/lib/$lib" "/lib/$lib"; got=1
-    elif [ -f "$PROP/lib/$lib" ]; then
-        install_lib "$PROP/lib/$lib" "/lib/$lib"; got=1
-    elif [ -f "$STOCK/lib/$lib" ]; then
-        install_lib "$STOCK/lib/$lib" "/lib/$lib"; got=1
-    fi
+    #
+    # v136: vendor sources MUST win over the system staging copy. A vendor blob
+    # was built against the vendor variant of its deps; the A16 system variant
+    # can carry extra DT_NEEDED entries that do not exist in the vendor
+    # namespace (libstagefright_bufferqueue_helper.so system copy NEEDs
+    # libgui.so, which broke the C2 codec HAL). Only fall back to the system
+    # variant when no vendor-side copy exists at all.
+    # HAL passthrough impl modules live in <arch>/hw/ and MUST be installed to
+    # /<arch>/hw/. Looking only at the top level made every impl in the LIBS
+    # list resolve to "UNRESOLVED", so e.g. android.hardware.memtrack@1.0-impl.so
+    # never reached the image and the memtrack HAL crash-looped (which blocks
+    # system_server's MemtrackProxyService and therefore boot_completed).
+    local sub="" dst=""
+    for sub in "" "/hw"; do
+        dst="/lib64$sub"
+        if [ -f "$STAGE/lib64$sub/$lib" ]; then
+            install_lib "$STAGE/lib64$sub/$lib" "$dst/$lib"; got=1
+        elif [ -f "$PROP/lib64$sub/$lib" ]; then
+            install_lib "$PROP/lib64$sub/$lib" "$dst/$lib"; got=1
+        elif [ -f "$STOCK/lib64$sub/$lib" ]; then
+            install_lib "$STOCK/lib64$sub/$lib" "$dst/$lib"; got=1
+        elif [ -f "$SYSSTAGE/lib64$sub/$lib" ]; then
+            install_lib "$SYSSTAGE/lib64$sub/$lib" "$dst/$lib"; got=1
+        fi
+        dst="/lib$sub"
+        if [ -f "$STAGE/lib$sub/$lib" ]; then
+            install_lib "$STAGE/lib$sub/$lib" "$dst/$lib"; got=1
+        elif [ -f "$PROP/lib$sub/$lib" ]; then
+            install_lib "$PROP/lib$sub/$lib" "$dst/$lib"; got=1
+        elif [ -f "$STOCK/lib$sub/$lib" ]; then
+            install_lib "$STOCK/lib$sub/$lib" "$dst/$lib"; got=1
+        elif [ -f "$SYSSTAGE/lib$sub/$lib" ]; then
+            install_lib "$SYSSTAGE/lib$sub/$lib" "$dst/$lib"; got=1
+        fi
+        [ "$got" = 1 ] && break
+    done
     [ "$got" = 1 ] || echo "  ! UNRESOLVED $lib"
 }
 
@@ -121,8 +140,12 @@ android.hardware.wifi@1.4.so
 android.hidl.allocator@1.0.so
 android.hidl.memory@1.0.so
 android.hidl.memory.token@1.0.so
+android.hidl.token@1.0.so
+android.hidl.token@1.0-utils.so
 libhidlmemory.so
 libcamera_metadata.so
+android.hardware.audio.common@4.0.so
+android.hardware.security.secureclock-V1-ndk.so
 libprocessgroup.so
 libjson.so
 libwifi-hal.so
@@ -169,20 +192,16 @@ vendor.qti.hardware.bluetooth_audio@2.0.so
 vendor.qti.hardware.display.mapper@4.0.so
 vendor.qti.hardware.display.mapperextensions@1.0.so
 vendor.qti.hardware.display.mapperextensions@1.1.so
-# Round-78: eglSubDriverAndroid.so (Samsung EGL sub-driver) dep — was missing
 vendor.qti.hardware.display.mapper@2.0.so
 libplatformconfig.so
 libdisplayconfig.qti.so
 libqservice.so
 libdisplaydebug.so
 libsdmutils.so
-# Round-73: display core stack (hwc/gralloc deps missed by the earlier audit
-# because it scanned /lib64 only, not the /lib64/hw module's DT_NEEDED)
 libsdmcore.so
 libgrallocutils.so
 libgralloccore.so
 libgpu_tonemapper.so
-# Round-73: remaining boot-relevant gaps seen in boot logs
 libavservices_minijail.so
 libjsoncpp.so
 android.hardware.gnss.measurement_corrections@1.0.so
@@ -192,7 +211,6 @@ android.hardware.radio@1.6.so
 android.hardware.camera.provider@2.5.so
 android.hardware.camera.provider@2.6.so
 android.frameworks.sensorservice@1.0.so
-# Round-74: hwcomposer.msmnile.so (A16 qcom display HAL) full dependency set
 vendor.display.config@1.4.so
 vendor.display.config@1.5.so
 vendor.display.config@1.6.so
@@ -201,23 +219,13 @@ vendor.display.config@1.8.so
 vendor.display.config@1.9.so
 vendor.display.config@1.10.so
 vendor.display.config@1.11.so
-# Round-77: libsdedrm.so — the actual DRMManager implementation that
-# libdrmutils dlopen()s. Without it HWInfoDRM::Init leaves drm_mgr_intf_
-# null and every composer (2.1 and 2.4) SIGSEGVs in GetSystemInfo.
 libsdedrm.so
 android.hardware.memtrack@1.0.so
-# Round-79: memtrack HAL (system_server startMemtrackProxyService blocks on it)
 android.hardware.memtrack@1.0-impl.so
 memtrack.msmnile.so
-# Round-75: libsdmcore's deps (recursive closure of the display stack)
 libdrmutils.so
 libdisplaycolor.so
 libsdmextension.so
-# Round-76: Samsung 2.4 composer (the stock hwcomposer service)
-# Round-83: hwcomposer.msmnile.so (Samsung hw module) hard-links the
-# composer@2.2/2.3/2.4 proxies — dlopen of the hw module fails without them
-# and the 2.1 service exits 1 (v42 over-deleted them; the pre-injection
-# image carried all three).
 android.hardware.graphics.composer@2.2.so
 android.hardware.graphics.composer@2.3.so
 android.hardware.graphics.composer@2.4.so
@@ -257,9 +265,6 @@ android.hardware.wifi.hostapd@1.2.so
 android.hardware.wifi.supplicant@1.0.so
 libsync.so
 libwvhidl.so
-# Round-80: QTI allocator service deps + restored libs (libdisplayqos/libsync
-# were dropped from vendor between the 29th and the injector rewrites;
-# libsdmextension.so hard-links libdisplayqos.so)
 libdisplayqos.so
 libgrallocusage.so
 vendor.qti.hardware.display.allocator@4.0.so
@@ -286,11 +291,177 @@ android.system.net.netd@1.1.so
 libandroid_net.so
 android.hardware.power-V1-ndk_platform.so
 vendor.samsung.hardware.snap@1.2-impl.so
+android.hardware.tetheroffload.config@1.0.so
+android.hardware.tetheroffload.control@1.0.so
 "
 
 echo "injecting vendor HAL interface libraries into $IMG:"
 for lib in $LIBS; do
     resolve_and_install "$lib"
+done
+
+# Samsung's audio.primary.msmnile.so is ELF32 and needs the 32-bit
+# libaudioroute.so in /vendor/lib (a 64-bit copy in /lib64 is useless to it).
+# The AOSP module is vendor_available but Soong does not ship its vendor
+# variant for this product, so the 32-bit build is kept as a tree blob.
+if [ -f device/samsung/sm8150-common/vendor_audio/lib/libaudioroute.so ]; then
+    install_lib device/samsung/sm8150-common/vendor_audio/lib/libaudioroute.so "/lib/libaudioroute.so"
+    debugfs -w -R "rm /lib64/libaudioroute.so" "$TMP/vendor.raw" >/dev/null 2>&1 || true
+fi
+
+# v136 static linker audit (link_audit_vendor.py, 1907 ELFs) proved the
+# vendor namespace is NOT self-sufficient: prebuilt Samsung HALs DT_NEEDED a
+# long tail of stock libs that neither the Soong graph nor the stale generated
+# vendor.mk ships (qseecomd died on libxml2->libandroidicu crossing the
+# namespace). This restores the v135 behavior of shipping the complete stock
+# vendor lib set from vendor_libs, minus the seven libs whose AOSP-built
+# variants must win (see SKIP_AOSP_BUILT below).
+# NOTE: the previous `case "$lib" in $SKIPV)` form silently failed for
+# newline-separated patterns under `set -u` + unquoted expansion: the list
+# collapsed into one word, so nothing matched and stock libEGL/libGLESv2/
+# libGLESv3 were injected anyway, which made linkerconfig abort with
+# "duplicate: libEGL.so is provided by default and system in [vendor]".
+# A plain string comparison per pattern is unambiguous.
+skip_v() {
+    local needle=$1 p
+    for p in \
+        android.hardware.graphics.composer@2.1.so \
+        android.hardware.graphics.composer@2.1-resources.so \
+        android.hardware.graphics.composer@2.2-resources.so \
+        libhwc2on1adapter.so \
+        libhwc2onfbadapter.so \
+        libbluetooth_audio_session.so \
+        android.hardware.bluetooth.audio@2.0.so \
+        libstagefright_bufferqueue_helper.so \
+        android.hidl.token@1.0-utils.so \
+        android.hidl.token@1.0.so \
+        libEGL.so \
+        libGLESv2.so \
+        libGLESv3.so \
+        libandroid_net.so \
+        libapexsupport.so \
+        libbinder_ndk.so \
+        liblog.so \
+        libnativewindow.so \
+        libselinux.so \
+        libsync.so \
+        libvndksupport.so \
+; do
+        [ "$needle" = "$p" ] && return 0
+    done
+    return 1
+}
+
+SKIPV_UNUSED='android.hardware.graphics.composer@2.1.so
+android.hardware.graphics.composer@2.1-resources.so
+android.hardware.graphics.composer@2.2-resources.so
+libhwc2on1adapter.so
+libhwc2onfbadapter.so
+libbluetooth_audio_session.so
+android.hardware.bluetooth.audio@2.0.so
+libstagefright_bufferqueue_helper.so
+android.hidl.token@1.0-utils.so
+android.hidl.token@1.0.so
+libEGL.so
+libGLESv2.so
+libGLESv3.so
+'
+# ipacm IS shipped. Do not remove it here.
+#
+# A previous revision of this script deleted /bin/ipacm and /etc/init/ipacm.rc
+# after packaging, on the theory that the two HIDL interfaces the blob links
+# (android.hardware.tetheroffload.config@1.0.so and .control@1.0.so) no longer
+# exist on Android 16. That reasoning is wrong: both interface libraries are
+# still built in this tree (hardware/interfaces/tetheroffload/{config,control}/1.0)
+# and both are named in PRODUCT_PACKAGES in sm8150-common-vendor.mk, so they
+# land in /vendor/lib64. Verified on device RF8N32EV43X: vendor.ipacm reaches
+# state "running" with no linker error and no restart loop.
+#
+# Deleting the binary is what made the LTE investigation dead-end: with
+# vendor.ipacm absent the IPA data path is never initialised and
+# ril.cidManager.initiated stays 0 (stock: 1), which was repeatedly mistaken
+# for an RF fault. See STATUS_20261118.md.
+
+STOCKV=device/samsung/sm8150-common/vendor_libs
+STOCKP=vendor/samsung/sm8150-common/proprietary/vendor
+
+# Idempotency: an earlier run of this script (before the skip list was fixed)
+# injected the stock EGL family into the image. Remove them so re-running the
+# script converges to the correct state instead of preserving the mistake.
+# linkerconfig aborts with "duplicate: libEGL.so is provided by default and
+# system in [vendor]" when the stock copies are present, and that abort makes
+# init fall back to a stub ld.config.txt with only /system/lib64 in the search
+# path (keystore2/qseecomd then fail with "libandroidicu.so not found").
+# The full set is derived from linker.config.json provideLibs (65 libs, incl.
+# LLNDK_MOVED_TO_APEX_LIBRARIES) intersected with vendor_libs: every one of
+# these makes linkerconfig abort with
+#   "duplicate: <lib> is provided by default and system in [vendor]"
+# and that abort is what makes init fall back to a stub ld.config.txt.
+for d in lib64 lib; do
+    for lib in \
+        libEGL.so libGLESv2.so libGLESv3.so libandroid_net.so libapexsupport.so  \
+        libbinder_ndk.so liblog.so libnativewindow.so libselinux.so libsync.so  \
+        libvndksupport.so ; do
+        debugfs -w -R "rm /$d/$lib" "$TMP/vendor.raw" >/dev/null 2>&1 || true
+    done
+done
+
+# Removing those libs is not enough: /vendor/etc/linker.config.pb was generated
+# by fsgen while the libs were still present, so it still advertises them as
+# "provided by vendor". linkerconfig then aborts with
+#   duplicate: libandroid_net.so is provided by default and system in [vendor]
+# even though the files are gone. Regenerate the pb with only the libs that
+# genuinely stay vendor-only (liboemcrypto, from
+# hardware/qcom-caf/common/linker.config.json).
+LCV=/etc/linker.config.pb
+if [ -f "$CONV_LINKER_CONFIG" ]; then
+    printf '{\n  "provideLibs": [\n    "liboemcrypto.so"\n  ]\n}\n' > "$TMP/lc.json"
+    if "$CONV_LINKER_CONFIG" proto -s "$TMP/lc.json" -o "$TMP/lc.pb" 2>/dev/null; then
+        debugfs -w -R "rm $LCV" "$TMP/vendor.raw" >/dev/null 2>&1 || true
+        debugfs -w -R "write $TMP/lc.pb $LCV" "$TMP/vendor.raw" >/dev/null 2>&1 || true
+        debugfs -w -R "sif $LCV mode 0100644" "$TMP/vendor.raw" >/dev/null 2>&1 || true
+        set_selinux_label "$LCV" "u:object_r:vendor_configs_file:s0"
+        echo "  ~ $LCV regenerated (provideLibs = liboemcrypto only)"
+    else
+        echo "  ! conv_linker_config failed" >&2
+    fi
+fi
+
+
+# AIDL supplicant VINTF declaration, written directly into the image.
+#
+# wpa_supplicant links android.hardware.wifi.supplicant-V5-ndk, but
+# assemble_vintf rewrites version 5 down to the highest *frozen* version (4) no
+# matter whether it comes from a vintf_fragment or from DEVICE_MANIFEST_FILE.
+# With 4 declared, the framework's ISupplicant lookup misses and supplicant
+# dies with
+#   Failed to initialize wpa_supplicant (status 255)
+#   WifiNative: Failed to start supplicant
+# and WiFi never turns on. Writing the fragment straight into the image keeps
+# version 5 (this is the same file that was verified working on device).
+SUPP_FRAG=/etc/vintf/manifest/android.hardware.wifi.supplicant.xml
+cat > "$TMP/supp.xml" <<'XMLEOF'
+<manifest version="1.0" type="device">
+    <hal format="aidl">
+        <name>android.hardware.wifi.supplicant</name>
+        <version>5</version>
+        <fqname>ISupplicant/default</fqname>
+    </hal>
+</manifest>
+XMLEOF
+debugfs -w -R "rm $SUPP_FRAG" "$TMP/vendor.raw" >/dev/null 2>&1 || true
+debugfs -w -R "write $TMP/supp.xml $SUPP_FRAG" "$TMP/vendor.raw" >/dev/null 2>&1 || true
+debugfs -w -R "sif $SUPP_FRAG mode 0100644" "$TMP/vendor.raw" >/dev/null 2>&1 || true
+set_selinux_label "$SUPP_FRAG" "u:object_r:vendor_configs_file:s0"
+echo "  ~ $SUPP_FRAG (ISupplicant/default @5)"
+
+for d in lib64 lib; do
+    for src in "$STOCKV/$d"/*.so; do
+        [ -f "$src" ] || continue
+        lib=$(basename "$src")
+        skip_v "$lib" && continue
+        install_lib "$src" "/$d/$lib"
+    done
 done
 
 # HAL implementations that live in vendor/lib*/hw (dlopened by the passthrough

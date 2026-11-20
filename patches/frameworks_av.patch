@@ -1,0 +1,536 @@
+diff --git a/camera/cameraserver/cameraserver.rc b/camera/cameraserver/cameraserver.rc
+index 63fa2b08f2..249efb3570 100644
+--- a/camera/cameraserver/cameraserver.rc
++++ b/camera/cameraserver/cameraserver.rc
+@@ -2,8 +2,12 @@ service cameraserver /system/bin/cameraserver
+     class main
+     user cameraserver
+     group audio camera input drmrpc
+-    ioprio rt 4
+-    task_profiles CameraServiceCapacity MaxPerformance
++    # v132fix: 4.14 cgroup v1 has no cgroup.freeze -> init SIGKILLs this
++    # service every cycle. Stripped.
++    #ioprio rt 4
++    # v132fix: 4.14 cgroup v1 has no cgroup.freeze -> init SIGKILLs this
++    # service every cycle. Stripped.
++    #task_profiles CameraServiceCapacity MaxPerformance
+     rlimit rtprio 10 10
+     capabilities SYS_NICE
+     onrestart class_restart cameraWatchdog
+diff --git a/media/audioserver/audioserver.rc b/media/audioserver/audioserver.rc
+index 0a8efbde82..577f21780f 100644
+--- a/media/audioserver/audioserver.rc
++++ b/media/audioserver/audioserver.rc
+@@ -6,9 +6,18 @@ service audioserver /system/bin/audioserver
+     capabilities BLOCK_SUSPEND WAKE_ALARM
+     # match rtprio cur / max with sensor service as we handle AR/VR HID sensor data.
+     rlimit rtprio 10 10
+-    ioprio rt 4
+-    task_profiles ProcessCapacityHigh HighPerformance
+-    onrestart restart vendor.audio-hal
++    # v132fix: 4.14 cgroup v1 has no cgroup.freeze -> init SIGKILLs this
++    # service every cycle. Stripped.
++    #ioprio rt 4
++    # v132fix: 4.14 cgroup v1 has no cgroup.freeze -> init SIGKILLs this
++    # service every cycle. Stripped.
++    #task_profiles ProcessCapacityHigh HighPerformance
++    # avium: vendor.audio-hal is the legacy HIDL service. It is built 64-bit
++    # in this image and cannot load the 32-bit Samsung audio.primary blob;
++    # every start aborted, which made init restart audioserver and vice
++    # versa (5-second mutual kill loop, no audio at all). Its service
++    # definition is removed from init.qcom.rc; do not reference it here.
++    # onrestart restart vendor.audio-hal
+     onrestart restart vendor.audio-hal-aidl
+     onrestart restart vendor.audio-effect-hal-aidl
+     onrestart restart vendor.audio-hal-4-0-msd
+@@ -20,7 +29,7 @@ on property:vts.native_server.on=0
+     start audioserver
+ 
+ on property:init.svc.audioserver=stopped
+-    stop vendor.audio-hal
++    # avium: no vendor.audio-hal (see the note above the onrestart lines).
+     stop vendor.audio-hal-aidl
+     stop vendor.audio-effect-hal-aidl
+     stop vendor.audio-hal-4-0-msd
+@@ -28,7 +37,6 @@ on property:init.svc.audioserver=stopped
+     # See b/155364397. Need to have HAL service running for VTS.
+     # Can't use 'restart' because then HAL service would restart
+     # audioserver bringing it back into running state.
+-    start vendor.audio-hal
+     start vendor.audio-hal-aidl
+     start vendor.audio-effect-hal-aidl
+     start vendor.audio-hal-4-0-msd
+@@ -41,7 +49,7 @@ on property:init.svc.audioserver=running && property:vts.native_server.on=1
+     stop audioserver
+ 
+ on property:init.svc.audioserver=running
+-    start vendor.audio-hal
++    # avium: no vendor.audio-hal (see the note above the onrestart lines).
+     start vendor.audio-hal-aidl
+     start vendor.audio-effect-hal-aidl
+     start vendor.audio-hal-4-0-msd
+@@ -50,12 +58,11 @@ on property:init.svc.audioserver=running
+ on property:sys.audio.restart.hal=1
+     # See b/159966243. Avoid restart loop between audioserver and HAL.
+     # Keep the original service names for backward compatibility
+-    stop vendor.audio-hal
++    # avium: no vendor.audio-hal (see the note above the onrestart lines).
+     stop vendor.audio-hal-aidl
+     stop vendor.audio-effect-hal-aidl
+     stop vendor.audio-hal-4-0-msd
+     stop audio_proxy_service
+-    start vendor.audio-hal
+     start vendor.audio-hal-aidl
+     start vendor.audio-effect-hal-aidl
+     start vendor.audio-hal-4-0-msd
+diff --git a/media/codec2/vndk/C2Buffer.cpp b/media/codec2/vndk/C2Buffer.cpp
+index bff953dfc4..5070c7a4db 100644
+--- a/media/codec2/vndk/C2Buffer.cpp
++++ b/media/codec2/vndk/C2Buffer.cpp
+@@ -1185,6 +1185,13 @@ C2PooledBlockPool::C2PooledBlockPool(
+ C2PooledBlockPool::~C2PooledBlockPool() {
+ }
+ 
++// [bring-up] Android 11 two-argument form; see C2BufferPriv.h for why it exists.
++C2PooledBlockPool::C2PooledBlockPool(
++        const std::shared_ptr<C2Allocator> &allocator,
++        const local_id_t localId)
++        : C2PooledBlockPool(allocator, localId, VER_HIDL) {
++}
++
+ c2_status_t C2PooledBlockPool::fetchLinearBlock(
+         uint32_t capacity,
+         C2MemoryUsage usage,
+diff --git a/media/codec2/vndk/C2PlatformStorePluginLoader.cpp b/media/codec2/vndk/C2PlatformStorePluginLoader.cpp
+index 2a888a8f19..d70122f716 100644
+--- a/media/codec2/vndk/C2PlatformStorePluginLoader.cpp
++++ b/media/codec2/vndk/C2PlatformStorePluginLoader.cpp
+@@ -94,6 +94,21 @@ c2_status_t C2PlatformStorePluginLoader::createAllocator(
+     return C2_OK;
+ }
+ 
++// [bring-up] Android 11 two-argument forms. See the header for why they exist.
++c2_status_t C2PlatformStorePluginLoader::createAllocator(
++        ::C2Allocator::id_t allocatorId,
++        std::shared_ptr<C2Allocator>* const allocator) {
++    return createAllocator(
++            allocatorId, allocator, std::default_delete<C2Allocator>());
++}
++
++c2_status_t C2PlatformStorePluginLoader::createBlockPool(
++        ::C2Allocator::id_t allocatorId, ::C2BlockPool::local_id_t blockPoolId,
++        std::shared_ptr<C2BlockPool>* pool) {
++    return createBlockPool(
++            allocatorId, blockPoolId, pool, std::default_delete<C2BlockPool>());
++}
++
+ // static
+ const std::unique_ptr<C2PlatformStorePluginLoader>& C2PlatformStorePluginLoader::GetInstance() {
+     android::Mutex::Autolock _l(sMutex);
+diff --git a/media/codec2/vndk/C2Store.cpp b/media/codec2/vndk/C2Store.cpp
+index a494b70cc5..5f3ea00f03 100644
+--- a/media/codec2/vndk/C2Store.cpp
++++ b/media/codec2/vndk/C2Store.cpp
+@@ -170,8 +170,10 @@ c2_status_t C2PlatformAllocatorStoreImpl::fetchAllocator(
+ 
+     default:
+         // Try to create allocator from platform store plugins.
+-        c2_status_t res =
+-                C2PlatformStorePluginLoader::GetInstance()->createAllocator(id, allocator);
++        // [bring-up] the deleter is passed explicitly here because it is no
++        // longer a default argument; see C2PlatformStorePluginLoader.h.
++        c2_status_t res = C2PlatformStorePluginLoader::GetInstance()->createAllocator(
++                id, allocator, std::default_delete<C2Allocator>());
+         if (res != C2_OK) {
+             return res;
+         }
+diff --git a/media/codec2/vndk/include/C2BufferPriv.h b/media/codec2/vndk/include/C2BufferPriv.h
+index 527845f43f..eee8b2f1a9 100644
+--- a/media/codec2/vndk/include/C2BufferPriv.h
++++ b/media/codec2/vndk/include/C2BufferPriv.h
+@@ -78,10 +78,28 @@ public:
+         VER_HIDL = 0,
+         VER_AIDL2
+     };
++    // [bring-up] NOTE: ver is no longer defaulted. With a default it would
++    // make a two-argument construction ambiguous once the Android 11
++    // constructor below exists. Platform callers pass it explicitly
++    // (C2Store.cpp passes GetBufferPoolVer()).
+     C2PooledBlockPool(
+             const std::shared_ptr<C2Allocator> &allocator,
+             const local_id_t localId,
+-            BufferPoolVer ver = VER_HIDL);
++            BufferPoolVer ver);
++
++    // [bring-up] Android 11 two-argument constructor, kept for vendor blobs.
++    // Samsung's libSecC2ComponentStore.so (samsung.software.media.c2@1.0-
++    // service) references
++    //   _ZN17C2PooledBlockPoolC1ERKNSt3__110shared_ptrI11C2AllocatorEEm
++    // which A16 no longer exports (the constructor gained the trailing
++    // BufferPoolVer). Without it the service fails to link:
++    //   cannot locate symbol
++    //   "_ZN17C2PooledBlockPoolC1ERKNSt3__110shared_ptrI11C2AllocatorEEm"
++    //   referenced by "/vendor/lib64/libSecC2ComponentStore.so"
++    // Nothing in the platform calls this form.
++    C2PooledBlockPool(
++            const std::shared_ptr<C2Allocator> &allocator,
++            const local_id_t localId);
+ 
+     virtual ~C2PooledBlockPool() override;
+ 
+diff --git a/media/codec2/vndk/include/C2PlatformStorePluginLoader.h b/media/codec2/vndk/include/C2PlatformStorePluginLoader.h
+index 73d1b5e839..8b5f5797ac 100644
+--- a/media/codec2/vndk/include/C2PlatformStorePluginLoader.h
++++ b/media/codec2/vndk/include/C2PlatformStorePluginLoader.h
+@@ -83,10 +83,35 @@ public:
+      * \retval C2_BAD_INDEX the input allocatorId is not defined in platform store extension.
+      * \retval C2_NO_MEMORY not enough memory to create the allocator
+      */
++    // [bring-up] NOTE: the deleter argument is no longer defaulted. It used to
++    // have = std::default_delete<C2Allocator>(), which makes a two-argument
++    // call ambiguous once the Android 11 overload below exists
++    // (C2Store.cpp:174 does exactly that):
++    //   error: call to member function 'createAllocator' is ambiguous
++    // Callers inside the platform now pass the deleter explicitly; vendor blobs
++    // keep using the two-argument overload, which forwards here.
+     c2_status_t createAllocator(
+             ::C2Allocator::id_t allocatorId,
+             std::shared_ptr<C2Allocator>* const allocator,
+-            std::function<void(C2Allocator *)> deleter = std::default_delete<C2Allocator>());
++            std::function<void(C2Allocator *)> deleter);
++
++    // [bring-up] Android 11 signatures, kept for vendor blobs compiled before
++    // the deleter parameter existed. Samsung's libSecC2ComponentStore.so
++    // (samsung.software.media.c2@1.0-service) references
++    //   _ZN27C2PlatformStorePluginLoader15createAllocatorEjPNSt3__110shared_ptrI11C2AllocatorEE
++    //   _ZN27C2PlatformStorePluginLoader15createBlockPoolEjmPNSt3__110shared_ptrI11C2BlockPoolEE
++    // which A16 no longer exports (both gained a trailing std::function
++    // deleter). Without them the service fails to link:
++    //   cannot locate symbol
++    //   "_ZN27C2PlatformStorePluginLoader15createAllocatorEjPNSt3__110shared_ptrI11C2AllocatorEE"
++    //   referenced by "/vendor/lib64/libSecC2ComponentStore.so"
++    // Nothing in the platform calls these two-argument forms.
++    c2_status_t createAllocator(
++            ::C2Allocator::id_t allocatorId,
++            std::shared_ptr<C2Allocator>* const allocator);
++    c2_status_t createBlockPool(
++            ::C2Allocator::id_t allocatorId, ::C2BlockPool::local_id_t blockPoolId,
++            std::shared_ptr<C2BlockPool>* pool);
+ 
+ private:
+     explicit C2PlatformStorePluginLoader(const char *libPath);
+diff --git a/media/libmediahelper/TypeConverter.cpp b/media/libmediahelper/TypeConverter.cpp
+index e29364c0b1..3008bd906f 100644
+--- a/media/libmediahelper/TypeConverter.cpp
++++ b/media/libmediahelper/TypeConverter.cpp
+@@ -136,4 +136,202 @@ OutputChannelTraits::Collection outputChannelMasksFromString(
+     return outputChannelMaskCollection;
+ }
+ 
++// [bring-up] Android 11 explicit device converter tables, see the declaration
++// in TypeConverter.h. Android 16 replaced these with inline specializations
++// that call audio_device_to_string()/audio_device_from_string(), so
++// libmedia_helper stopped emitting the mTable symbols that pre-Android-12
++// blobs bind directly (Samsung's android.hardware.audio@6.0-impl.so needs
++// OutputDeviceConverter::mTable to load). Entries copied from
++// AUDIO_DEVICE_LIST_UNIQUE_DEF, split by direction like Android 11 did.
++
++template<> const OutputDeviceConverter::Table OutputDeviceConverter::mTable[] = {
++    MAKE_STRING_FROM_ENUM(AUDIO_DEVICE_NONE),
++    MAKE_STRING_FROM_ENUM(AUDIO_DEVICE_OUT_EARPIECE),
++    MAKE_STRING_FROM_ENUM(AUDIO_DEVICE_OUT_SPEAKER),
++    MAKE_STRING_FROM_ENUM(AUDIO_DEVICE_OUT_WIRED_HEADSET),
++    MAKE_STRING_FROM_ENUM(AUDIO_DEVICE_OUT_WIRED_HEADPHONE),
++    MAKE_STRING_FROM_ENUM(AUDIO_DEVICE_OUT_BLUETOOTH_SCO),
++    MAKE_STRING_FROM_ENUM(AUDIO_DEVICE_OUT_BLUETOOTH_SCO_HEADSET),
++    MAKE_STRING_FROM_ENUM(AUDIO_DEVICE_OUT_BLUETOOTH_SCO_CARKIT),
++    MAKE_STRING_FROM_ENUM(AUDIO_DEVICE_OUT_BLUETOOTH_A2DP),
++    MAKE_STRING_FROM_ENUM(AUDIO_DEVICE_OUT_BLUETOOTH_A2DP_HEADPHONES),
++    MAKE_STRING_FROM_ENUM(AUDIO_DEVICE_OUT_BLUETOOTH_A2DP_SPEAKER),
++    MAKE_STRING_FROM_ENUM(AUDIO_DEVICE_OUT_HDMI),
++    MAKE_STRING_FROM_ENUM(AUDIO_DEVICE_OUT_ANLG_DOCK_HEADSET),
++    MAKE_STRING_FROM_ENUM(AUDIO_DEVICE_OUT_DGTL_DOCK_HEADSET),
++    MAKE_STRING_FROM_ENUM(AUDIO_DEVICE_OUT_USB_ACCESSORY),
++    MAKE_STRING_FROM_ENUM(AUDIO_DEVICE_OUT_USB_DEVICE),
++    MAKE_STRING_FROM_ENUM(AUDIO_DEVICE_OUT_REMOTE_SUBMIX),
++    MAKE_STRING_FROM_ENUM(AUDIO_DEVICE_OUT_TELEPHONY_TX),
++    MAKE_STRING_FROM_ENUM(AUDIO_DEVICE_OUT_LINE),
++    MAKE_STRING_FROM_ENUM(AUDIO_DEVICE_OUT_HDMI_ARC),
++    MAKE_STRING_FROM_ENUM(AUDIO_DEVICE_OUT_HDMI_EARC),
++    MAKE_STRING_FROM_ENUM(AUDIO_DEVICE_OUT_SPDIF),
++    MAKE_STRING_FROM_ENUM(AUDIO_DEVICE_OUT_FM),
++    MAKE_STRING_FROM_ENUM(AUDIO_DEVICE_OUT_AUX_LINE),
++    MAKE_STRING_FROM_ENUM(AUDIO_DEVICE_OUT_SPEAKER_SAFE),
++    MAKE_STRING_FROM_ENUM(AUDIO_DEVICE_OUT_IP),
++    MAKE_STRING_FROM_ENUM(AUDIO_DEVICE_OUT_MULTICHANNEL_GROUP),
++    MAKE_STRING_FROM_ENUM(AUDIO_DEVICE_OUT_BUS),
++    MAKE_STRING_FROM_ENUM(AUDIO_DEVICE_OUT_PROXY),
++    MAKE_STRING_FROM_ENUM(AUDIO_DEVICE_OUT_USB_HEADSET),
++    MAKE_STRING_FROM_ENUM(AUDIO_DEVICE_OUT_HEARING_AID),
++    MAKE_STRING_FROM_ENUM(AUDIO_DEVICE_OUT_ECHO_CANCELLER),
++    MAKE_STRING_FROM_ENUM(AUDIO_DEVICE_OUT_BLE_HEADSET),
++    MAKE_STRING_FROM_ENUM(AUDIO_DEVICE_OUT_BLE_SPEAKER),
++    MAKE_STRING_FROM_ENUM(AUDIO_DEVICE_OUT_BLE_BROADCAST),
++    MAKE_STRING_FROM_ENUM(AUDIO_DEVICE_OUT_DEFAULT),
++    MAKE_STRING_FROM_ENUM(AUDIO_DEVICE_OUT_AUX_DIGITAL),
++    MAKE_STRING_FROM_ENUM(AUDIO_DEVICE_OUT_STUB),
++    TERMINATOR
++};
++
++template<> const InputDeviceConverter::Table InputDeviceConverter::mTable[] = {
++    MAKE_STRING_FROM_ENUM(AUDIO_DEVICE_NONE),
++    MAKE_STRING_FROM_ENUM(AUDIO_DEVICE_IN_COMMUNICATION),
++    MAKE_STRING_FROM_ENUM(AUDIO_DEVICE_IN_AMBIENT),
++    MAKE_STRING_FROM_ENUM(AUDIO_DEVICE_IN_BUILTIN_MIC),
++    MAKE_STRING_FROM_ENUM(AUDIO_DEVICE_IN_BLUETOOTH_SCO_HEADSET),
++    MAKE_STRING_FROM_ENUM(AUDIO_DEVICE_IN_WIRED_HEADSET),
++    MAKE_STRING_FROM_ENUM(AUDIO_DEVICE_IN_HDMI),
++    MAKE_STRING_FROM_ENUM(AUDIO_DEVICE_IN_TELEPHONY_RX),
++    MAKE_STRING_FROM_ENUM(AUDIO_DEVICE_IN_BACK_MIC),
++    MAKE_STRING_FROM_ENUM(AUDIO_DEVICE_IN_REMOTE_SUBMIX),
++    MAKE_STRING_FROM_ENUM(AUDIO_DEVICE_IN_ANLG_DOCK_HEADSET),
++    MAKE_STRING_FROM_ENUM(AUDIO_DEVICE_IN_DGTL_DOCK_HEADSET),
++    MAKE_STRING_FROM_ENUM(AUDIO_DEVICE_IN_USB_ACCESSORY),
++    MAKE_STRING_FROM_ENUM(AUDIO_DEVICE_IN_USB_DEVICE),
++    MAKE_STRING_FROM_ENUM(AUDIO_DEVICE_IN_FM_TUNER),
++    MAKE_STRING_FROM_ENUM(AUDIO_DEVICE_IN_TV_TUNER),
++    MAKE_STRING_FROM_ENUM(AUDIO_DEVICE_IN_LINE),
++    MAKE_STRING_FROM_ENUM(AUDIO_DEVICE_IN_SPDIF),
++    MAKE_STRING_FROM_ENUM(AUDIO_DEVICE_IN_BLUETOOTH_A2DP),
++    MAKE_STRING_FROM_ENUM(AUDIO_DEVICE_IN_LOOPBACK),
++    MAKE_STRING_FROM_ENUM(AUDIO_DEVICE_IN_IP),
++    MAKE_STRING_FROM_ENUM(AUDIO_DEVICE_IN_BUS),
++    MAKE_STRING_FROM_ENUM(AUDIO_DEVICE_IN_PROXY),
++    MAKE_STRING_FROM_ENUM(AUDIO_DEVICE_IN_USB_HEADSET),
++    MAKE_STRING_FROM_ENUM(AUDIO_DEVICE_IN_BLUETOOTH_BLE),
++    MAKE_STRING_FROM_ENUM(AUDIO_DEVICE_IN_HDMI_ARC),
++    MAKE_STRING_FROM_ENUM(AUDIO_DEVICE_IN_HDMI_EARC),
++    MAKE_STRING_FROM_ENUM(AUDIO_DEVICE_IN_ECHO_REFERENCE),
++    MAKE_STRING_FROM_ENUM(AUDIO_DEVICE_IN_BLE_HEADSET),
++    MAKE_STRING_FROM_ENUM(AUDIO_DEVICE_IN_DEFAULT),
++    MAKE_STRING_FROM_ENUM(AUDIO_DEVICE_IN_VOICE_CALL),
++    MAKE_STRING_FROM_ENUM(AUDIO_DEVICE_IN_AUX_DIGITAL),
++    MAKE_STRING_FROM_ENUM(AUDIO_DEVICE_IN_STUB),
++    TERMINATOR
++};
++
++
++
++template<> const FormatConverter::Table FormatConverter::mTable[] = {
++    MAKE_STRING_FROM_ENUM(AUDIO_FORMAT_DEFAULT),
++    MAKE_STRING_FROM_ENUM(AUDIO_FORMAT_PCM_16_BIT),
++    MAKE_STRING_FROM_ENUM(AUDIO_FORMAT_PCM_8_BIT),
++    MAKE_STRING_FROM_ENUM(AUDIO_FORMAT_PCM_32_BIT),
++    MAKE_STRING_FROM_ENUM(AUDIO_FORMAT_PCM_8_24_BIT),
++    MAKE_STRING_FROM_ENUM(AUDIO_FORMAT_PCM_FLOAT),
++    MAKE_STRING_FROM_ENUM(AUDIO_FORMAT_PCM_24_BIT_PACKED),
++    MAKE_STRING_FROM_ENUM(AUDIO_FORMAT_MP3),
++    MAKE_STRING_FROM_ENUM(AUDIO_FORMAT_AMR_NB),
++    MAKE_STRING_FROM_ENUM(AUDIO_FORMAT_AMR_WB),
++    MAKE_STRING_FROM_ENUM(AUDIO_FORMAT_AAC),
++    MAKE_STRING_FROM_ENUM(AUDIO_FORMAT_AAC_MAIN),
++    MAKE_STRING_FROM_ENUM(AUDIO_FORMAT_AAC_LC),
++    MAKE_STRING_FROM_ENUM(AUDIO_FORMAT_AAC_SSR),
++    MAKE_STRING_FROM_ENUM(AUDIO_FORMAT_AAC_LTP),
++    MAKE_STRING_FROM_ENUM(AUDIO_FORMAT_AAC_HE_V1),
++    MAKE_STRING_FROM_ENUM(AUDIO_FORMAT_AAC_SCALABLE),
++    MAKE_STRING_FROM_ENUM(AUDIO_FORMAT_AAC_ERLC),
++    MAKE_STRING_FROM_ENUM(AUDIO_FORMAT_AAC_LD),
++    MAKE_STRING_FROM_ENUM(AUDIO_FORMAT_AAC_HE_V2),
++    MAKE_STRING_FROM_ENUM(AUDIO_FORMAT_AAC_ELD),
++    MAKE_STRING_FROM_ENUM(AUDIO_FORMAT_AAC_XHE),
++    MAKE_STRING_FROM_ENUM(AUDIO_FORMAT_HE_AAC_V1),
++    MAKE_STRING_FROM_ENUM(AUDIO_FORMAT_HE_AAC_V2),
++    MAKE_STRING_FROM_ENUM(AUDIO_FORMAT_VORBIS),
++    MAKE_STRING_FROM_ENUM(AUDIO_FORMAT_OPUS),
++    MAKE_STRING_FROM_ENUM(AUDIO_FORMAT_OPUS_HI_RES),
++    MAKE_STRING_FROM_ENUM(AUDIO_FORMAT_AC3),
++    MAKE_STRING_FROM_ENUM(AUDIO_FORMAT_E_AC3),
++    MAKE_STRING_FROM_ENUM(AUDIO_FORMAT_E_AC3_JOC),
++    MAKE_STRING_FROM_ENUM(AUDIO_FORMAT_DTS),
++    MAKE_STRING_FROM_ENUM(AUDIO_FORMAT_DTS_HD),
++    MAKE_STRING_FROM_ENUM(AUDIO_FORMAT_IEC61937),
++    MAKE_STRING_FROM_ENUM(AUDIO_FORMAT_DOLBY_TRUEHD),
++    MAKE_STRING_FROM_ENUM(AUDIO_FORMAT_EVRC),
++    MAKE_STRING_FROM_ENUM(AUDIO_FORMAT_EVRCB),
++    MAKE_STRING_FROM_ENUM(AUDIO_FORMAT_EVRCWB),
++    MAKE_STRING_FROM_ENUM(AUDIO_FORMAT_EVRCNW),
++    MAKE_STRING_FROM_ENUM(AUDIO_FORMAT_AAC_ADIF),
++    MAKE_STRING_FROM_ENUM(AUDIO_FORMAT_WMA),
++    MAKE_STRING_FROM_ENUM(AUDIO_FORMAT_WMA_PRO),
++    MAKE_STRING_FROM_ENUM(AUDIO_FORMAT_AMR_WB_PLUS),
++    MAKE_STRING_FROM_ENUM(AUDIO_FORMAT_MP2),
++    MAKE_STRING_FROM_ENUM(AUDIO_FORMAT_QCELP),
++    MAKE_STRING_FROM_ENUM(AUDIO_FORMAT_DSD),
++    MAKE_STRING_FROM_ENUM(AUDIO_FORMAT_FLAC),
++    MAKE_STRING_FROM_ENUM(AUDIO_FORMAT_ALAC),
++    MAKE_STRING_FROM_ENUM(AUDIO_FORMAT_APE),
++    MAKE_STRING_FROM_ENUM(AUDIO_FORMAT_AAC_ADTS),
++    MAKE_STRING_FROM_ENUM(AUDIO_FORMAT_AAC_ADTS_MAIN),
++    MAKE_STRING_FROM_ENUM(AUDIO_FORMAT_AAC_ADTS_LC),
++    MAKE_STRING_FROM_ENUM(AUDIO_FORMAT_AAC_ADTS_SSR),
++    MAKE_STRING_FROM_ENUM(AUDIO_FORMAT_AAC_ADTS_LTP),
++    MAKE_STRING_FROM_ENUM(AUDIO_FORMAT_AAC_ADTS_HE_V1),
++    MAKE_STRING_FROM_ENUM(AUDIO_FORMAT_AAC_ADTS_SCALABLE),
++    MAKE_STRING_FROM_ENUM(AUDIO_FORMAT_AAC_ADTS_ERLC),
++    MAKE_STRING_FROM_ENUM(AUDIO_FORMAT_AAC_ADTS_LD),
++    MAKE_STRING_FROM_ENUM(AUDIO_FORMAT_AAC_ADTS_HE_V2),
++    MAKE_STRING_FROM_ENUM(AUDIO_FORMAT_AAC_ADTS_ELD),
++    MAKE_STRING_FROM_ENUM(AUDIO_FORMAT_AAC_ADTS_XHE),
++    MAKE_STRING_FROM_ENUM(AUDIO_FORMAT_SBC),
++    MAKE_STRING_FROM_ENUM(AUDIO_FORMAT_APTX),
++    MAKE_STRING_FROM_ENUM(AUDIO_FORMAT_APTX_HD),
++    MAKE_STRING_FROM_ENUM(AUDIO_FORMAT_AC4),
++    MAKE_STRING_FROM_ENUM(AUDIO_FORMAT_AC4_L4),
++    MAKE_STRING_FROM_ENUM(AUDIO_FORMAT_LDAC),
++    MAKE_STRING_FROM_ENUM(AUDIO_FORMAT_MAT),
++    MAKE_STRING_FROM_ENUM(AUDIO_FORMAT_MAT_1_0),
++    MAKE_STRING_FROM_ENUM(AUDIO_FORMAT_MAT_2_0),
++    MAKE_STRING_FROM_ENUM(AUDIO_FORMAT_MAT_2_1),
++    MAKE_STRING_FROM_ENUM(AUDIO_FORMAT_AAC_LATM),
++    MAKE_STRING_FROM_ENUM(AUDIO_FORMAT_AAC_LATM_LC),
++    MAKE_STRING_FROM_ENUM(AUDIO_FORMAT_AAC_LATM_HE_V1),
++    MAKE_STRING_FROM_ENUM(AUDIO_FORMAT_AAC_LATM_HE_V2),
++    MAKE_STRING_FROM_ENUM(AUDIO_FORMAT_CELT),
++    MAKE_STRING_FROM_ENUM(AUDIO_FORMAT_APTX_ADAPTIVE),
++    MAKE_STRING_FROM_ENUM(AUDIO_FORMAT_LHDC),
++    MAKE_STRING_FROM_ENUM(AUDIO_FORMAT_LHDC_LL),
++    MAKE_STRING_FROM_ENUM(AUDIO_FORMAT_APTX_TWSP),
++    MAKE_STRING_FROM_ENUM(AUDIO_FORMAT_LC3),
++    MAKE_STRING_FROM_ENUM(AUDIO_FORMAT_MPEGH),
++    MAKE_STRING_FROM_ENUM(AUDIO_FORMAT_MPEGH_BL_L3),
++    MAKE_STRING_FROM_ENUM(AUDIO_FORMAT_MPEGH_BL_L4),
++    MAKE_STRING_FROM_ENUM(AUDIO_FORMAT_MPEGH_LC_L3),
++    MAKE_STRING_FROM_ENUM(AUDIO_FORMAT_MPEGH_LC_L4),
++    MAKE_STRING_FROM_ENUM(AUDIO_FORMAT_IEC60958),
++    MAKE_STRING_FROM_ENUM(AUDIO_FORMAT_DTS_UHD),
++    MAKE_STRING_FROM_ENUM(AUDIO_FORMAT_DRA),
++    MAKE_STRING_FROM_ENUM(AUDIO_FORMAT_APTX_ADAPTIVE_QLEA),
++    MAKE_STRING_FROM_ENUM(AUDIO_FORMAT_APTX_ADAPTIVE_R4),
++    MAKE_STRING_FROM_ENUM(AUDIO_FORMAT_DTS_HD_MA),
++    MAKE_STRING_FROM_ENUM(AUDIO_FORMAT_DTS_UHD_P2),
++    MAKE_STRING_FROM_ENUM(AUDIO_FORMAT_IAMF_SIMPLE_OPUS),
++    MAKE_STRING_FROM_ENUM(AUDIO_FORMAT_IAMF_SIMPLE_AAC),
++    MAKE_STRING_FROM_ENUM(AUDIO_FORMAT_IAMF_SIMPLE_PCM),
++    MAKE_STRING_FROM_ENUM(AUDIO_FORMAT_IAMF_SIMPLE_FLAC),
++    MAKE_STRING_FROM_ENUM(AUDIO_FORMAT_IAMF_BASE_OPUS),
++    MAKE_STRING_FROM_ENUM(AUDIO_FORMAT_IAMF_BASE_AAC),
++    MAKE_STRING_FROM_ENUM(AUDIO_FORMAT_IAMF_BASE_PCM),
++    MAKE_STRING_FROM_ENUM(AUDIO_FORMAT_IAMF_BASE_FLAC),
++    MAKE_STRING_FROM_ENUM(AUDIO_FORMAT_IAMF_BASE_ENHANCED_OPUS),
++    MAKE_STRING_FROM_ENUM(AUDIO_FORMAT_IAMF_BASE_ENHANCED_AAC),
++    MAKE_STRING_FROM_ENUM(AUDIO_FORMAT_IAMF_BASE_ENHANCED_PCM),
++    MAKE_STRING_FROM_ENUM(AUDIO_FORMAT_IAMF_BASE_ENHANCED_FLAC),
++    MAKE_STRING_FROM_ENUM(VX_AUDIO_FORMAT_LC3),
++    TERMINATOR
++};
++
+ }; // namespace android
+diff --git a/media/libmediahelper/include/media/TypeConverter.h b/media/libmediahelper/include/media/TypeConverter.h
+index 22bf19f706..f98f01072e 100644
+--- a/media/libmediahelper/include/media/TypeConverter.h
++++ b/media/libmediahelper/include/media/TypeConverter.h
+@@ -242,6 +242,23 @@ typedef TypeConverter<AudioFlagTraits> AudioFlagConverter;
+ template<> const AudioModeConverter::Table AudioModeConverter::mTable[];
+ template<> const AudioFlagConverter::Table AudioFlagConverter::mTable[];
+ 
++// [bring-up] Android 11 shipped explicit mTable symbols for the device
++// converters, and pre-Android-12 blobs bind them directly, e.g. Samsung's
++// android.hardware.audio@6.0-impl.so:
++//
++//   E vndksupport: dlopen failed: cannot locate symbol
++//     "_ZN7android13TypeConverterINS_18OutputDeviceTraitsEE6mTableE"
++//     referenced by "/vendor/lib64/hw/android.hardware.audio@6.0-impl.so"
++//
++// Android 16 replaced the device tables with inline specializations that call
++// audio_device_to_string()/audio_device_from_string() (see below), so
++// libmedia_helper no longer emits these symbols. Declare them here and define
++// them in TypeConverter.cpp so old blobs link again. The tables are filled
++// from AUDIO_DEVICE_LIST_UNIQUE_DEF, matching what Android 11 shipped.
++template<> const OutputDeviceConverter::Table OutputDeviceConverter::mTable[];
++template<> const InputDeviceConverter::Table InputDeviceConverter::mTable[];
++template<> const FormatConverter::Table FormatConverter::mTable[];
++
+ template <>
+ inline bool TypeConverter<DeviceTraits>::toStringImpl(
+         const DeviceTraits::Type &value, std::string &str) {
+diff --git a/media/module/bqhelper/flagged_files/DeprecatedGraphicBufferSource.inc b/media/module/bqhelper/flagged_files/DeprecatedGraphicBufferSource.inc
+index 8d4c8c513f..d8135061dd 100644
+--- a/media/module/bqhelper/flagged_files/DeprecatedGraphicBufferSource.inc
++++ b/media/module/bqhelper/flagged_files/DeprecatedGraphicBufferSource.inc
+@@ -405,6 +405,17 @@ GraphicBufferSource::getHGraphicBufferProducer_V1_0() const {
+     return new TWGraphicBufferProducer(getIGraphicBufferProducer());
+ }
+ 
++// [bring-up] Android 11 spelling of getHGraphicBufferProducer_V1_0(), for
++// vendor blobs that predate the rename (Samsung
++// samsung.software.media.c2@1.0-service -> libcodec2_hidl@1.0.so references
++// _ZNK7android19GraphicBufferSource25getHGraphicBufferProducerEv).
++// No platform caller uses this.
++sp<::android::hardware::graphics::bufferqueue::V1_0::IGraphicBufferProducer>
++GraphicBufferSource::getHGraphicBufferProducer() const {
++    return getHGraphicBufferProducer_V1_0();
++}
++
++
+ status_t GraphicBufferSource::start() {
+     Mutex::Autolock autoLock(mMutex);
+     ALOGV("--> start; available=%zu, submittable=%zd",
+diff --git a/media/module/bqhelper/flagged_files/GraphicBufferSource.inc b/media/module/bqhelper/flagged_files/GraphicBufferSource.inc
+index 368c97902e..a40093ba44 100644
+--- a/media/module/bqhelper/flagged_files/GraphicBufferSource.inc
++++ b/media/module/bqhelper/flagged_files/GraphicBufferSource.inc
+@@ -328,6 +328,17 @@ GraphicBufferSource::getHGraphicBufferProducer_V1_0() const {
+     return new TWGraphicBufferProducer(getIGraphicBufferProducer());
+ }
+ 
++// [bring-up] Android 11 spelling of getHGraphicBufferProducer_V1_0(), for
++// vendor blobs that predate the rename (Samsung
++// samsung.software.media.c2@1.0-service -> libcodec2_hidl@1.0.so references
++// _ZNK7android19GraphicBufferSource25getHGraphicBufferProducerEv).
++// No platform caller uses this.
++sp<::android::hardware::graphics::bufferqueue::V1_0::IGraphicBufferProducer>
++GraphicBufferSource::getHGraphicBufferProducer() const {
++    return getHGraphicBufferProducer_V1_0();
++}
++
++
+ status_t GraphicBufferSource::start() {
+     Mutex::Autolock autoLock(mMutex);
+     ALOGV("--> start; available=%zu, submittable=%zd", mAvailableBuffers.size(),
+diff --git a/media/module/bqhelper/include/media/stagefright/bqhelper/GraphicBufferSource.h b/media/module/bqhelper/include/media/stagefright/bqhelper/GraphicBufferSource.h
+index 1521ef31df..64d676ef36 100644
+--- a/media/module/bqhelper/include/media/stagefright/bqhelper/GraphicBufferSource.h
++++ b/media/module/bqhelper/include/media/stagefright/bqhelper/GraphicBufferSource.h
+@@ -104,6 +104,21 @@ public:
+     sp<::android::hardware::graphics::bufferqueue::V1_0::IGraphicBufferProducer>
+         getHGraphicBufferProducer_V1_0() const;
+ 
++    // [bring-up] Android 11 name for the method above. The method was renamed
++    // to the _V1_0 form when a second (V2_0) bufferqueue HAL appeared. Vendor
++    // blobs built against Android 11 - notably Samsung's
++    // samsung.software.media.c2@1.0-service -> libcodec2_hidl@1.0.so - still
++    // reference the old mangled name:
++    //   _ZNK7android19GraphicBufferSource25getHGraphicBufferProducerEv
++    // and fail to link without it:
++    //   CANNOT LINK EXECUTABLE ".../samsung.software.media.c2@1.0-service":
++    //   cannot locate symbol
++    //   "_ZNK7android19GraphicBufferSource25getHGraphicBufferProducerEv"
++    //   referenced by "/vendor/lib64/libcodec2_hidl@1.0.so"
++    // Nothing in the platform calls this; it exists only for those blobs.
++    sp<::android::hardware::graphics::bufferqueue::V1_0::IGraphicBufferProducer>
++        getHGraphicBufferProducer() const;
++
+     // This is called when component transitions to running state, which means
+     // we can start handing it buffers.  If we already have buffers of data
+     // sitting in the BufferQueue, this will send them to the codec.
+diff --git a/services/mediacodec/android.hardware.media.omx@1.0-service.rc b/services/mediacodec/android.hardware.media.omx@1.0-service.rc
+index b5f9ab0cc7..bc8b520044 100644
+--- a/services/mediacodec/android.hardware.media.omx@1.0-service.rc
++++ b/services/mediacodec/android.hardware.media.omx@1.0-service.rc
+@@ -2,5 +2,3 @@ service vendor.media.omx /vendor/bin/hw/android.hardware.media.omx@1.0-service
+     class main
+     user mediacodec
+     group camera drmrpc mediadrm audio
+-    ioprio rt 4
+-    task_profiles ProcessCapacityHigh

@@ -1,0 +1,35 @@
+diff --git a/arch/arm64/configs/beyond1qlte_usa_single_defconfig b/arch/arm64/configs/beyond1qlte_usa_single_defconfig
+index 7d7dad53c..5b5dab55b 100755
+--- a/arch/arm64/configs/beyond1qlte_usa_single_defconfig
++++ b/arch/arm64/configs/beyond1qlte_usa_single_defconfig
+@@ -2651,7 +2651,10 @@ CONFIG_SPMI_MSM_PMIC_ARB_DEBUG=y
+ CONFIG_SLIMBUS=y
+ # CONFIG_SLIMBUS_MSM_CTRL is not set
+ CONFIG_SLIMBUS_MSM_NGD=y
+-CONFIG_SLIMBUS_DEBUG=y
++# v132b: the servloc (audio_pdr_adsp) failure path panic()s under this
++# debug flag when the ADSP is down; with firmware_mnt now populated this
++# should not fire, but a debug panic is never the right default.
++# CONFIG_SLIMBUS_DEBUG is not set
+ # CONFIG_HSI is not set
+ # CONFIG_PPS is not set
+ 
+diff --git a/drivers/platform/msm/ipa/ipa_v3/ipa.c b/drivers/platform/msm/ipa/ipa_v3/ipa.c
+index f2b42ad32..2e5fb6757 100755
+--- a/drivers/platform/msm/ipa/ipa_v3/ipa.c
++++ b/drivers/platform/msm/ipa/ipa_v3/ipa.c
+@@ -6650,7 +6650,13 @@ static void ipa3_load_ipa_fw(struct work_struct *work)
+ 	if (result) {
+ 		IPAERR("IPA FW loading process has failed result=%d\n",
+ 			result);
+-		ipa_assert();
++		/* v132: WARN instead of ipa_assert(). PIL-TZ rejects
++		 * ipa_fws.mdt with rc:-22 (Turing init-image SCM call) on the
++		 * 4.14.357-openela base, and the assert turned that into a
++		 * kernel BUG -> sec_debug reboot loop. IPA hardware is unused
++		 * on this board (Broadcom dhd has no IPA offload dependency),
++		 * so a failed firmware load is non-fatal here. */
++		WARN_ON(1);
+ 		return;
+ 	}
+ 	pr_info("IPA FW loaded successfully\n");

@@ -1,0 +1,23 @@
+diff --git a/aidl/mainline_supplicant/Android.bp b/aidl/mainline_supplicant/Android.bp
+index 01f5fecb7f..0dbe345b6a 100644
+--- a/aidl/mainline_supplicant/Android.bp
++++ b/aidl/mainline_supplicant/Android.bp
+@@ -15,6 +15,18 @@
+ aidl_interface {
+     name: "android.system.wifi.mainline_supplicant",
+     unstable: true,
++    // v127: keep this at V5. Do NOT downgrade to V4.
++    //
++    // hardware/interfaces/wifi/supplicant/aidl freezes versions 1..4, so the
++    // AIDL toolchain calls the unfrozen "current" API version 5 and generates
++    // the module "android.hardware.wifi.supplicant-V5-java" for it -- that
++    // module does exist, it is simply the ToT interface rather than a frozen
++    // snapshot. packages/modules/Wifi/service/Android.bp:100 already depends
++    // on supplicant-V5-java directly, so pinning this interface to V4 makes
++    // wifi-service-pre-jarjar pull two versions of the same aidl_interface:
++    //   error: "wifi-service-pre-jarjar" depends on multiple versions of the
++    //   same aidl_interface: ...supplicant-V4-java-source, -V5-java-source
++    // Matching V5 here gives both consumers the same interface version.
+     imports: ["android.hardware.wifi.supplicant-V5"],
+     srcs: ["android/system/wifi/mainline_supplicant/*.aidl"],
+     backend: {

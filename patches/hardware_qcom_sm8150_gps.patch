@@ -1,0 +1,26 @@
+diff --git a/android/2.1/android.hardware.gnss@2.1-service-qti.xml b/android/2.1/android.hardware.gnss@2.1-service-qti.xml
+index 842fb6e..907cd3b 100755
+--- a/android/2.1/android.hardware.gnss@2.1-service-qti.xml
++++ b/android/2.1/android.hardware.gnss@2.1-service-qti.xml
+@@ -26,10 +26,21 @@ OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN
+ IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ -->
+ <manifest version="1.0" type="device">
++    <!-- v125: libvintf rejects a single <hal> block that mixes major versions
++         ("Duplicated major version: 1.1 vs 2.1") and silently drops the whole
++         fragment. The service binary registers @2.1::IGnss/default, and
++         SystemServer's GnssLocationProvider JNI calls
++         IGnss_V2_1::getService() -- which retries forever -- on the
++         system_server main thread, so a dropped fragment means
++         boot_completed never happens. One block per major version. -->
+     <hal format="hidl">
+         <name>android.hardware.gnss</name>
+         <transport>hwbinder</transport>
+         <fqname>@1.1::IGnss/default</fqname>
++    </hal>
++    <hal format="hidl">
++        <name>android.hardware.gnss</name>
++        <transport>hwbinder</transport>
+         <fqname>@2.1::IGnss/default</fqname>
+     </hal>
+ </manifest>

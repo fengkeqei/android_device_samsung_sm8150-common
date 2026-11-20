@@ -1,0 +1,11 @@
+# Avium beyond1q: NXP NFC HAL (hal_nfc_default) registers the vendor
+# INxpNfc HIDL interface. Nothing declares that hwservice, so it lands on
+# default_android_hwservice and the registration is denied:
+#   avc: denied { add } interface=vendor.nxp.nxpnfc::INxpNfc
+#        tcontext=u:object_r:default_android_hwservice:s0
+#   avc: denied { find } (same interface)
+# com.android.nfc then cannot reach the vendor extension and reports the
+# adapter as unavailable.
+type hal_nxpnfc_hwservice, hwservice_manager_type;
+add_hwservice(hal_nfc_default, hal_nxpnfc_hwservice)
+allow nfc hal_nxpnfc_hwservice:hwservice_manager find;

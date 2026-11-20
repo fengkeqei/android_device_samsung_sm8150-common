@@ -1,0 +1,2897 @@
+diff --git a/audio/aidl/default/Android.bp b/audio/aidl/default/Android.bp
+index 48c1fefcf5..152a6ee11e 100644
+--- a/audio/aidl/default/Android.bp
++++ b/audio/aidl/default/Android.bp
+@@ -39,6 +39,39 @@ cc_defaults {
+         "-DBACKEND_NDK",
+     ],
+ }
++// Avium v132bw34: core-variant twin of aidlaudioservice_defaults (no vendor:true).
++cc_defaults {
++    name: "aidlaudioservice_defaults_system",
++    shared_libs: [
++        "libalsautilsv2",
++        "libaudio_aidl_conversion_common_ndk",
++        "libaudioaidlcommon",
++        "libaudioutils",
++        "libbase",
++        "libbinder_ndk",
++        "libcutils",
++        "libfmq",
++        // v132bw36: A16 rule - system modules link libnbaio, not the
++        // vendor-only libnbaio_mono.
++        "libnbaio",
++        "liblog",
++        "libmedia_helper",
++        "libstagefright_foundation",
++        "libtinyalsav2",
++        "libutils",
++        "libxml2",
++        "android.hardware.common-V2-ndk",
++        "android.hardware.common.fmq-V1-ndk",
++    ],
++    header_libs: [
++        "libaudio_system_headers",
++        "libaudioaidl_headers",
++        "libxsdc-utils",
++    ],
++    cflags: [
++        "-DBACKEND_NDK",
++    ],
++}
+ 
+ cc_library {
+     name: "libaudioserviceexampleimpl",
+@@ -59,9 +92,11 @@ cc_library {
+         "Configuration.cpp",
+         "EngineConfigXmlConverter.cpp",
+         "Module.cpp",
++        "ModuleLegacy.cpp",
+         "ModulePrimary.cpp",
+         "SoundDose.cpp",
+         "Stream.cpp",
++        "StreamLegacy.cpp",
+         "Telephony.cpp",
+         "XsdcConversion.cpp",
+         "alsa/Mixer.cpp",
+@@ -107,6 +142,100 @@ cc_library {
+         "libaudio_aidl_conversion_common_ndk",
+         "libaudioutils",
+         "libbluetooth_audio_session_aidl",
++        "libhardware",
++        "liblog",
++        "libmedia_helper",
++        "libmediautils_vendor",
++        "libstagefright_foundation",
++    ],
++    export_shared_lib_headers: [
++        "libaudio_aidl_conversion_common_ndk",
++    ],
++    cflags: [
++        "-Wall",
++        "-Wextra",
++        "-Werror",
++        "-Wthread-safety",
++        "-DBACKEND_NDK",
++    ],
++}
++// Avium v132bw34: core-variant static twin for the system-domain service.
++// v132bw40: uses the ORIGINAL (pre-StreamLegacy-patch) Module.cpp +
++// ModulePrimary.h from hardware/interfaces HEAD - the ALSA/tinyalsa backend
++// works in the system domain (audioserver group reaches /dev/snd under this
++// Permissive build), while the StreamLegacy dlopen of Samsung's 32-bit
++// audio.primary.msmnile.so hangs the HAL init inside the system process
++// (QMI context missing), stalling AudioService's getDevice forever.
++cc_library_static {
++    name: "libaudioserviceexampleimpl.avium",
++    defaults: [
++        "aidlaudioservice_defaults_system",
++        "latest_android_media_audio_common_types_ndk_shared",
++        "latest_android_hardware_audio_core_ndk_shared",
++        "latest_android_hardware_audio_core_sounddose_ndk_shared",
++        "latest_android_hardware_bluetooth_audio_ndk_shared",
++    ],
++    export_include_dirs: ["include"],
++    srcs: [
++        "AidlConversionXsdc.cpp",
++        "AudioPolicyConfigXmlConverter.cpp",
++        "Bluetooth.cpp",
++        "CapEngineConfigXmlConverter.cpp",
++        "Config.cpp",
++        "Configuration.cpp",
++        "EngineConfigXmlConverter.cpp",
++        "Module.cpp",
++        "ModuleLegacy.cpp",
++        "ModulePrimary.cpp",
++        "SoundDose.cpp",
++        "Stream.cpp",
++        "StreamLegacy.cpp",
++        "Telephony.cpp",
++        "XsdcConversion.cpp",
++        "alsa/Mixer.cpp",
++        "alsa/ModuleAlsa.cpp",
++        "alsa/StreamAlsa.cpp",
++        "alsa/Utils.cpp",
++        "bluetooth/DevicePortProxy.cpp",
++        "bluetooth/ModuleBluetooth.cpp",
++        "bluetooth/StreamBluetooth.cpp",
++        "deprecated/StreamSwitcher.cpp",
++        "primary/PrimaryMixer.cpp",
++        "primary/StreamPrimary.cpp",
++        "r_submix/ModuleRemoteSubmix.cpp",
++        "r_submix/SubmixRoute.cpp",
++        "r_submix/StreamRemoteSubmix.cpp",
++        "stub/ApeHeader.cpp",
++        "stub/DriverStubImpl.cpp",
++        "stub/ModuleStub.cpp",
++        "stub/StreamMmapStub.cpp",
++        "stub/StreamOffloadStub.cpp",
++        "stub/StreamStub.cpp",
++        "usb/ModuleUsb.cpp",
++        "usb/StreamUsb.cpp",
++        "usb/UsbAlsaMixerControl.cpp",
++    ],
++    generated_sources: [
++        "audio_policy_capengine_configuration_aidl_default",
++        "audio_policy_configuration_aidl_default",
++        "audio_policy_engine_configuration_aidl_default",
++    ],
++    generated_headers: [
++        "audio_policy_capengine_configuration_aidl_default",
++        "audio_policy_configuration_aidl_default",
++        "audio_policy_engine_configuration_aidl_default",
++    ],
++    export_generated_headers: [
++        "audio_policy_capengine_configuration_aidl_default",
++        "audio_policy_configuration_aidl_default",
++        "audio_policy_engine_configuration_aidl_default",
++    ],
++    shared_libs: [
++        "android.hardware.bluetooth.audio-impl",
++        "libaudio_aidl_conversion_common_ndk",
++        "libaudioutils",
++        "libbluetooth_audio_session_aidl",
++        "libhardware",
+         "liblog",
+         "libmedia_helper",
+         "libmediautils_vendor",
+@@ -170,6 +299,48 @@ cc_library {
+     },
+ }
+ 
++// Avium beyond1q: system variant of libeffectconfig for the system-domain
++// audio effect service (android.hardware.audio.effect.service-aidl.avium).
++// libeffectconfig is vendor:true, so a system binary cannot dlopen it; this
++// twin drops vendor:true and the apex-only libapexsupport link.
++cc_library {
++    name: "libeffectconfig_avium",
++    srcs: [
++        "EffectConfig.cpp",
++    ],
++    defaults: [
++        "latest_android_hardware_audio_effect_ndk_shared",
++        "latest_android_media_audio_common_types_ndk_shared",
++    ],
++    shared_libs: [
++        "libaudioutils",
++        "libaudio_aidl_conversion_common_ndk",
++        "libbase",
++        "libbinder_ndk",
++        "liblog",
++        "libmedia_helper",
++        "libtinyxml2",
++        "libutils",
++    ],
++    header_libs: [
++        "libaudio_system_headers",
++        "libaudioaidl_headers",
++    ],
++    export_shared_lib_headers: [
++        "libtinyxml2",
++    ],
++    export_include_dirs: [
++        "include",
++    ],
++    cflags: [
++        "-Wall",
++        "-Wextra",
++        "-Werror",
++        "-DBACKEND_NDK",
++    ],
++    host_supported: true,
++}
++
+ cc_binary {
+     name: "android.hardware.audio.service-aidl.example",
+     relative_install_path: "hw",
+@@ -202,6 +373,98 @@ cc_binary {
+     installable: false, //installed in apex com.android.hardware.audio
+ }
+ 
++// [bring-up] 32-bit audio AIDL HAL that drives the vendor legacy audio HAL
++// (audio.primary.msmnile.so).  The vendor blob is ELF32-only, so this service
++// must be 32-bit; the 64-bit example binary above keeps using the AOSP ALSA
++// backend and is only used on devices where the blob is 64-bit.
++cc_binary {
++    name: "android.hardware.audio.service-aidl",
++    relative_install_path: "hw",
++    defaults: [
++        "aidlaudioservice_defaults",
++        "latest_android_hardware_audio_core_sounddose_ndk_shared",
++        "latest_android_hardware_audio_core_ndk_shared",
++        "latest_android_hardware_bluetooth_audio_ndk_shared",
++        "latest_android_media_audio_common_types_ndk_shared",
++    ],
++    vendor: true,
++    compile_multilib: "32",
++    static_libs: [
++        "libaudioserviceexampleimpl",
++    ],
++    shared_libs: [
++        "android.hardware.bluetooth.audio-impl",
++        "libaudio_aidl_conversion_common_ndk",
++        "libbluetooth_audio_session_aidl",
++        "libhardware",
++        "liblog",
++        "libmedia_helper",
++        "libstagefright_foundation",
++    ],
++    srcs: ["main.cpp"],
++    // avium: no init_rc. The binary stays installed (fsgen dependency graph)
++    // but must never be started: its 64-bit variant cannot load the 32-bit
++    // Samsung audio.primary blob and it collides with the system-domain AIDL
++    // HAL (android.hardware.audio.service-aidl.avium) that owns IModule.
++    // This used to be a post-build delete of the rc in fix_vendor_mountpoints.
++    // init_rc: ["android.hardware.audio.service-aidl.rc"],
++    vintf_fragments: ["android.hardware.audio.service-aidl.legacy.xml"],
++    cflags: [
++        "-Wall",
++        "-Wextra",
++        "-Werror",
++        "-Wthread-safety",
++        "-DBACKEND_NDK",
++    ],
++}
++// Avium beyond1q v132bw33: SYSTEM variant of the AIDL audio service.
++// AudioService (system_server main thread, StartAudioService) does
++// waitForDeclaredService on IConfig/default; the vendor 32-bit service
++// registers on vndSM which this bp4a cannot bridge, so boot deadlocks.
++// This copy runs 64-bit on /dev/binder and makes the declared service
++// resolve. The vendor variant stays for vendor-domain consumers.
++cc_binary {
++    name: "android.hardware.audio.service-aidl.avium",
++    relative_install_path: "hw",
++    // v132bw39: 32-bit like the vendor twin - Samsung's audio.primary.msmnile
++    // HAL blob is 32-bit only (vendor/lib/hw), and StreamLegacy dlopens it.
++    compile_multilib: "32",
++    defaults: [
++        "aidlaudioservice_defaults_system",
++        "latest_android_hardware_audio_core_sounddose_ndk_shared",
++        "latest_android_hardware_audio_core_ndk_shared",
++        "latest_android_hardware_bluetooth_audio_ndk_shared",
++        "latest_android_media_audio_common_types_ndk_shared",
++    ],
++    static_libs: [
++        "libaudioserviceexampleimpl.avium",
++    ],
++    shared_libs: [
++        "android.hardware.bluetooth.audio-impl",
++        "libaudio_aidl_conversion_common_ndk",
++        "libbluetooth_audio_session_aidl",
++        "libhardware",
++        "liblog",
++        "libmedia_helper",
++        "libstagefright_foundation",
++    ],
++    srcs: ["main.cpp"],
++    init_rc: ["android.hardware.audio.service-aidl.avium.rc"],
++    // v132bw41b: takeover via rc removal, NOT overrides: overrides strips the
++    // vendor variant and breaks the vendor image's fsgen dependency graph.
++    // The fix script deletes /vendor/etc/init/android.hardware.audio.service-
++    // aidl.rc so only this system-domain instance (service name
++    // vendor.audio-hal-aidl) starts - two audio HAL processes cannot coexist
++    // (sound card contention deadlocks audioserver getDevice).
++    cflags: [
++        "-Wall",
++        "-Wextra",
++        "-Werror",
++        "-Wthread-safety",
++        "-DBACKEND_NDK",
++    ],
++}
++
+ cc_test {
+     name: "audio_policy_config_xml_converter_tests",
+     vendor_available: true,
+@@ -324,6 +587,67 @@ cc_defaults {
+     ],
+ }
+ 
++// Avium beyond1q: system-domain variant of the audio effect service defaults
++// (aidlaudioeffectservice_defaults but without `vendor: true`). The system
++// audioserver looks for android.hardware.audio.effect.IFactory on /dev/binder,
++// so the effect service must register there like the audio core avium twin.
++cc_defaults {
++    name: "aidlaudioeffectservice_defaults_system",
++    defaults: [
++        "latest_android_media_audio_common_types_ndk_shared",
++        "latest_android_hardware_audio_effect_ndk_shared",
++    ],
++    shared_libs: [
++        "libaudio_aidl_conversion_common_ndk",
++        "libaudioaidlcommon",
++        "libaudioutils",
++        "libbase",
++        "libbinder_ndk",
++        "libcutils",
++        "libfmq",
++        "liblog",
++        "libutils",
++        "android.hardware.common-V2-ndk",
++        "android.hardware.common.fmq-V1-ndk",
++    ],
++    header_libs: [
++        "libaudioaidl_headers",
++        "libaudio_system_headers",
++        "libsystem_headers",
++    ],
++    cflags: [
++        "-Wall",
++        "-Wextra",
++        "-Werror",
++        "-Wthread-safety",
++        "-DBACKEND_NDK",
++        // Avium: system variant has no __ANDROID_VENDOR_API__ (vendor-only),
++        // and no __ANDROID_APEX__; define it to 0 so EffectMain.cpp's
++        // config_file_path() takes the non-apex branch (audio_find_readable_configuration_file).
++        "-D__ANDROID_VENDOR_API__=0",
++    ],
++}
++
++// Avium beyond1q: system-domain audio effect service. Registers
++// android.hardware.audio.effect.IFactory on /dev/binder (no vendor-AIDL bridge
++// on this bp4a base); the vendor apex copy stays on vndbinder and audioserver
++// never sees it -> AudioPolicyService never registers -> listAudioPorts -32 ->
++// bluetooth A2DP retry loop.
++cc_binary {
++    name: "android.hardware.audio.effect.service-aidl.avium",
++    relative_install_path: "hw",
++    defaults: ["aidlaudioeffectservice_defaults_system"],
++    shared_libs: [
++        "libapexsupport",
++        "libeffectconfig_avium",
++    ],
++    srcs: [
++        "EffectFactory.cpp",
++        "EffectMain.cpp",
++    ],
++    init_rc: ["android.hardware.audio.effect.service-aidl.avium.rc"],
++}
++
+ filegroup {
+     name: "effectCommonFile",
+     srcs: [
+diff --git a/audio/aidl/default/EffectMain.cpp b/audio/aidl/default/EffectMain.cpp
+index 7a6141a339..a1f5df2122 100644
+--- a/audio/aidl/default/EffectMain.cpp
++++ b/audio/aidl/default/EffectMain.cpp
+@@ -29,6 +29,7 @@
+ static const char* kDefaultConfigName = "audio_effects_config.xml";
+ 
+ static inline std::string config_file_path() {
++#if __ANDROID_VENDOR_API__ >= 202404
+     if constexpr (__ANDROID_VENDOR_API__ >= 202404) {
+         AApexInfo *apexInfo;
+         if (AApexInfo_create(&apexInfo) == AAPEXINFO_OK) {
+@@ -41,9 +42,10 @@ static inline std::string config_file_path() {
+                 return candidatePath;
+             }
+         }
+-    } else {
+-        LOG(DEBUG) << __func__ << " libapexsupport is not supported";
+     }
++#else
++    LOG(DEBUG) << __func__ << " libapexsupport is not supported";
++#endif
+     LOG(DEBUG) << __func__ << ": Unable to resolve config file path in APEX";
+     return android::audio_find_readable_configuration_file(kDefaultConfigName);
+ }
+diff --git a/audio/aidl/default/Module.cpp b/audio/aidl/default/Module.cpp
+index 5211da4648..65a2597bd5 100644
+--- a/audio/aidl/default/Module.cpp
++++ b/audio/aidl/default/Module.cpp
+@@ -27,6 +27,7 @@
+ #include "core-impl/Configuration.h"
+ #include "core-impl/Module.h"
+ #include "core-impl/ModuleBluetooth.h"
++#include "core-impl/ModuleLegacy.h"
+ #include "core-impl/ModulePrimary.h"
+ #include "core-impl/ModuleRemoteSubmix.h"
+ #include "core-impl/ModuleStub.h"
+@@ -113,6 +114,12 @@ bool findAudioProfile(const AudioPort& port, const AudioFormatDescription& forma
+ std::shared_ptr<Module> Module::createInstance(Type type, std::unique_ptr<Configuration>&& config) {
+     switch (type) {
+         case Type::DEFAULT:
++            // [bring-up] On 32-bit builds prefer the vendor legacy HAL via
++            // StreamLegacy.  The vendor blob is ELF32-only, so a 64-bit
++            // process cannot load it and keeps the AOSP ALSA backend.
++            if (sizeof(void*) == 4) {
++                return ndk::SharedRefBase::make<ModuleLegacy>(std::move(config));
++            }
+             return ndk::SharedRefBase::make<ModulePrimary>(std::move(config));
+         case Type::R_SUBMIX:
+             return ndk::SharedRefBase::make<ModuleRemoteSubmix>(std::move(config));
+diff --git a/audio/aidl/default/include/core-impl/ModulePrimary.h b/audio/aidl/default/include/core-impl/ModulePrimary.h
+index c93deedfea..db60fec615 100644
+--- a/audio/aidl/default/include/core-impl/ModulePrimary.h
++++ b/audio/aidl/default/include/core-impl/ModulePrimary.h
+@@ -20,7 +20,9 @@
+ 
+ namespace aidl::android::hardware::audio::core {
+ 
+-class ModulePrimary final : public Module {
++// [bring-up] Not final: ModuleLegacy derives from it to reuse the default
++// stream creation path as a fallback when the vendor legacy HAL is missing.
++class ModulePrimary : public Module {
+   public:
+     ModulePrimary(std::unique_ptr<Configuration>&& config)
+         : Module(Type::DEFAULT, std::move(config)) {}
+diff --git a/audio/common/all-versions/default/HidlUtils.cpp b/audio/common/all-versions/default/HidlUtils.cpp
+index c0dcd80ac0..a8276f0842 100644
+--- a/audio/common/all-versions/default/HidlUtils.cpp
++++ b/audio/common/all-versions/default/HidlUtils.cpp
+@@ -37,6 +37,12 @@ status_t HidlUtils::audioConfigFromHal(const audio_config_t& halConfig, bool, Au
+     return status;
+ }
+ 
++// [bring-up] Android 11 two-argument overload, see HidlUtils.h. The current
++// implementation ignores isInput, so this is a pure symbol-compat forwarder.
++status_t HidlUtils::audioConfigFromHal(const audio_config_t& halConfig, AudioConfig* config) {
++    return audioConfigFromHal(halConfig, false /* isInput */, config);
++}
++
+ status_t HidlUtils::audioConfigToHal(const AudioConfig& config, audio_config_t* halConfig) {
+     memset(halConfig, 0, sizeof(audio_config_t));
+     halConfig->sample_rate = config.sampleRateHz;
+diff --git a/audio/common/all-versions/default/HidlUtils.h b/audio/common/all-versions/default/HidlUtils.h
+index 844a65117c..967ec7cea4 100644
+--- a/audio/common/all-versions/default/HidlUtils.h
++++ b/audio/common/all-versions/default/HidlUtils.h
+@@ -40,7 +40,29 @@ using namespace ::android::hardware::audio::common::COMMON_TYPES_CPP_VERSION;
+ struct HidlUtils {
+     static status_t audioConfigFromHal(const audio_config_t& halConfig, bool isInput,
+                                        AudioConfig* config);
++    // [bring-up] Android 11 two-argument overload. Pre-Android-12 vendor audio
++    // HALs (e.g. Samsung's android.hardware.audio@6.0-impl.so) bind this exact
++    // symbol:
++    //   _ZN7android8hardware5audio6common4V6_014implementation9HidlUtils18
++    //   audioConfigFromHalERK12audio_configPNS3_11AudioConfigE
++    // Android 16 added the isInput parameter, so the old mangled name is gone
++    // and the blob fails to load:
++    //   E vndksupport: dlopen failed: cannot locate symbol
++    //     "...audioConfigFromHalERK12audio_configPNS3_11AudioConfigE"
++    // The current implementation ignores isInput entirely, so forwarding with
++    // `false` is behaviour-preserving.
++    static status_t audioConfigFromHal(const audio_config_t& halConfig,
++                                       AudioConfig* config);
+     static status_t audioConfigToHal(const AudioConfig& config, audio_config_t* halConfig);
++#if MAJOR_VERSION <= 6
++    // [bring-up] Android 11 kept the UUID converters inside HidlUtils; Android
++    // 16 moved them to UuidUtils (all-versions/default/UuidUtils.h). Samsung's
++    // android.hardware.audio.effect@6.0-impl.so binds the old HidlUtils
++    // symbols, so forward to the new home. Only for MAJOR_VERSION <= 6
++    // because 7.0+ blobs never referenced HidlUtils::uuid*.
++    static void uuidFromHal(const audio_uuid_t& halUuid, Uuid* uuid);
++    static void uuidToHal(const Uuid& uuid, audio_uuid_t* halUuid);
++#endif
+ #if MAJOR_VERSION >= 4
+     static status_t audioContentTypeFromHal(const audio_content_type_t halContentType,
+                                             AudioContentType* contentType);
+@@ -69,6 +91,15 @@ struct HidlUtils {
+                                             hidl_vec<AudioPortConfig>* configs);
+     static status_t audioPortConfigsToHal(const hidl_vec<AudioPortConfig>& configs,
+                                           std::unique_ptr<audio_port_config[]>* halConfigs);
++    // [bring-up] Android 11 one-argument overload. Pre-Android-12 vendor audio
++    // HALs (Samsung's android.hardware.audio@6.0-impl.so) bind:
++    //   _ZN7android8hardware5audio6common4V6_014implementation9HidlUtils
++    //   22audioPortConfigsToHalERKNS_8hidl_vecINS4_15AudioPortConfigEEEE
++    // Android 16 split it into the two-argument form above (result moved to an
++    // out-parameter), removing the old mangled name. This overload restores it
++    // by forwarding; behaviour is identical.
++    static std::unique_ptr<audio_port_config[]> audioPortConfigsToHal(
++            const hidl_vec<AudioPortConfig>& configs);
+     static status_t audioPortFromHal(const struct audio_port& halPort, AudioPort* port);
+     static status_t audioPortToHal(const AudioPort& port, struct audio_port* halPort);
+     static status_t audioSourceFromHal(audio_source_t halSource, AudioSource* source);
+diff --git a/audio/common/all-versions/default/HidlUtilsCommon.cpp b/audio/common/all-versions/default/HidlUtilsCommon.cpp
+index bc3d8702c9..78fd20d06c 100644
+--- a/audio/common/all-versions/default/HidlUtilsCommon.cpp
++++ b/audio/common/all-versions/default/HidlUtilsCommon.cpp
+@@ -15,6 +15,7 @@
+  */
+ 
+ #include "HidlUtils.h"
++#include "UuidUtils.h"
+ 
+ namespace android {
+ namespace hardware {
+@@ -50,6 +51,28 @@ status_t HidlUtils::audioPortConfigsToHal(const hidl_vec<AudioPortConfig>& confi
+     return result;
+ }
+ 
++// [bring-up] Android 11 one-argument overload, see HidlUtils.h. Pure
++// symbol-compat forwarder onto the two-argument form.
++std::unique_ptr<audio_port_config[]> HidlUtils::audioPortConfigsToHal(
++        const hidl_vec<AudioPortConfig>& configs) {
++    std::unique_ptr<audio_port_config[]> halConfigs;
++    audioPortConfigsToHal(configs, &halConfigs);
++    return halConfigs;
++}
++
++#if MAJOR_VERSION <= 6
++// [bring-up] Android 11 HidlUtils::uuid* forwarders, see HidlUtils.h. Android
++// 16 moved these to UuidUtils; old effect HAL blobs still bind the HidlUtils
++// symbols.
++void HidlUtils::uuidFromHal(const audio_uuid_t& halUuid, Uuid* uuid) {
++    UuidUtils::uuidFromHal(halUuid, uuid);
++}
++
++void HidlUtils::uuidToHal(const Uuid& uuid, audio_uuid_t* halUuid) {
++    UuidUtils::uuidToHal(uuid, halUuid);
++}
++#endif
++
+ }  // namespace implementation
+ }  // namespace COMMON_TYPES_CPP_VERSION
+ }  // namespace common
+diff --git a/audio/common/all-versions/default/service/Android.bp b/audio/common/all-versions/default/service/Android.bp
+index e2e0a93798..55d6866871 100644
+--- a/audio/common/all-versions/default/service/Android.bp
++++ b/audio/common/all-versions/default/service/Android.bp
+@@ -38,7 +38,17 @@ android_hardware_audio_config_default {
+ cc_binary {
+     name: "android.hardware.audio.service",
+ 
+-    init_rc: ["android.hardware.audio.service.rc"],
++    // [bring-up] This ROM runs the AIDL audio HAL
++    // (android.hardware.audio.service-aidl, see
++    // hardware/interfaces/audio/aidl/default/Android.bp) with a legacy-HAL
++    // bridge for the vendor blob. The HIDL service must NOT start: when both
++    // were present the two HALs raced for /dev/snd and the mixer routing was
++    // never applied, so playback was silent while frames kept being written.
++    // We therefore keep the binary installed (android.hardware.audio@2.0-
++    // service lists it in REQUIRED, so `enabled: false` breaks the build)
++    // but drop its init_rc entirely: without an rc, init never launches it
++    // and hwservicemanager cannot start it on demand either.
++    // init_rc: ["android.hardware.audio.service.rc"],
+     relative_install_path: "hw",
+     vendor: true,
+ 
+diff --git a/bluetooth/1.0/default/Android.bp b/bluetooth/1.0/default/Android.bp
+index 84a49cf0a7..4f575f55d7 100644
+--- a/bluetooth/1.0/default/Android.bp
++++ b/bluetooth/1.0/default/Android.bp
+@@ -46,12 +46,22 @@ cc_defaults {
+     ],
+ }
+ 
+-cc_library {
++// [bring-up] Passthrough HALs are loaded at runtime: LegacySupport looks for
++// "<interface>-impl.so" in /vendor/lib(64)/hw/ and dlsym()s
++// HIDL_FETCH_IBluetoothHci out of it (see
++// system/libhidl/transport/ServiceManagement.cpp). So this must be a
++// cc_library_shared installed into the hw/ subdirectory, exactly like
++// android.hardware.audio@6.0-impl. Statically linking it into the service
++// does not work: the only reference to the fetch function is the runtime
++// dlsym(), so the linker either drops the archive (static_libs) or GCs every
++// unreferenced section (whole_static_libs + --gc-sections).
++cc_library_shared {
+     name: "android.hardware.bluetooth@1.0-impl",
+     defaults: [
+         "hidl_defaults",
+         "android.hardware.bluetooth@1.0-defaults",
+     ],
++    relative_install_path: "hw",
+ }
+ 
+ cc_library {
+@@ -148,6 +158,10 @@ cc_binary {
+     init_rc: ["android.hardware.bluetooth@1.0-service.rc"],
+     srcs: ["service.cpp"],
+ 
++    // [bring-up] The passthrough impl is a separate shared library installed
++    // to /vendor/lib64/hw/ (see android.hardware.bluetooth@1.0-impl above);
++    // LegacySupport dlopen()s it at runtime. Static linking does not work
++    // because nothing in this binary references HIDL_FETCH_IBluetoothHci.
+     shared_libs: [
+         "liblog",
+         "libcutils",
+diff --git a/bluetooth/1.0/default/android.hardware.bluetooth@1.0-service.rc b/bluetooth/1.0/default/android.hardware.bluetooth@1.0-service.rc
+index def59de566..d7de4d9875 100644
+--- a/bluetooth/1.0/default/android.hardware.bluetooth@1.0-service.rc
++++ b/bluetooth/1.0/default/android.hardware.bluetooth@1.0-service.rc
+@@ -4,5 +4,4 @@ service vendor.bluetooth-1-0 /vendor/bin/hw/android.hardware.bluetooth@1.0-servi
+     capabilities BLOCK_SUSPEND NET_ADMIN SYS_NICE
+     user bluetooth
+     group bluetooth
+-    task_profiles HighPerformance
+ 
+diff --git a/bluetooth/audio/aidl/default/Android.bp b/bluetooth/audio/aidl/default/Android.bp
+index c2cc681dad..a4f7e58b6f 100644
+--- a/bluetooth/audio/aidl/default/Android.bp
++++ b/bluetooth/audio/aidl/default/Android.bp
+@@ -9,8 +9,10 @@ package {
+ 
+ cc_library_shared {
+     name: "android.hardware.bluetooth.audio-impl",
+-    vendor: true,
+-    vintf_fragments: ["bluetooth_audio.xml"],
++    // v132bw37b: vendor_available (not vendor:true - they are mutually
++    // exclusive in soong) so BOTH the vendor service and the system-domain
++    // avium audio service can link this impl.
++    vendor_available: true,
+     defaults: [
+         "aconfig_lib_cc_static_link.defaults",
+         "latest_android_hardware_bluetooth_audio_ndk_shared",
+@@ -52,3 +54,14 @@ prebuilt_etc {
+     sub_dir: "vintf",
+     installable: false,
+ }
++
++// v132bw37f: the vendor manifest fragment carrier, separate module name so
++// (a) the audio APEX keeps referencing the prebuilt_etc above, (b) the core
++// variant of android.hardware.bluetooth.audio-impl carries no fragment
++// (double ownership broke fsgen in v132bw37b), (c) system-side manifest
++// fragments are avoided entirely (device hung pre-adb in v132bw26).
++vintf_fragment {
++    name: "android.hardware.bluetooth.audio.vintf.xml",
++    src: "bluetooth_audio.xml",
++    vendor: true,
++}
+diff --git a/bluetooth/audio/utils/Android.bp b/bluetooth/audio/utils/Android.bp
+index 4e247606db..eed5a2f5d3 100644
+--- a/bluetooth/audio/utils/Android.bp
++++ b/bluetooth/audio/utils/Android.bp
+@@ -35,7 +35,9 @@ cc_library_shared {
+ 
+ cc_library_shared {
+     name: "libbluetooth_audio_session_aidl",
+-    vendor: true,
++    // v132bw38: dual variant for the system-domain avium audio service
++    // (same pattern as android.hardware.bluetooth.audio-impl in v132bw37f).
++    vendor_available: true,
+     host_supported: true,
+     srcs: [
+         "aidl_session/BluetoothAudioCodecs.cpp",
+diff --git a/bluetooth/bluetooth_hal/Android.bp b/bluetooth/bluetooth_hal/Android.bp
+index 93683204b5..6fe96b39a4 100644
+--- a/bluetooth/bluetooth_hal/Android.bp
++++ b/bluetooth/bluetooth_hal/Android.bp
+@@ -735,3 +735,44 @@ cc_test {
+         "libbase",
+     ],
+ }
++
++// [bring-up] Service entry point for the bluetooth_hal backend.
++//
++// libbluetooth_hal is a static library with no consumers in the tree, so
++// nothing ever exposed android.hardware.bluetooth.IBluetoothHci from it.
++// hardware/interfaces/bluetooth/aidl/default does register that interface,
++// but it only drives an emulator-style /dev/hvc5 and performs no chip
++// bring-up, which leaves this device's BCM4375 unpowered.
++//
++// This binary registers HciProxyAidl (which implements the whole AIDL
++// interface) on top of bluetooth_hal's UART H4 transport and Broadcom
++// firmware provisioning. It replaces android.hardware.bluetooth-service.default
++// in PRODUCT_PACKAGES for this device.
++cc_binary {
++    name: "android.hardware.bluetooth-service.bt",
++    defaults: ["libbluetooth_hal_defaults"],
++    relative_install_path: "hw",
++    vendor: true,
++    init_rc: ["service/bluetooth-service-bt.rc"],
++    vintf_fragments: ["service/bluetooth-service-bt.xml"],
++    // hci_proxy_aidl.cc is already compiled into libbluetooth_hal via
++    // hal_common_srcs, so only the entry point lives here.
++    srcs: [
++        "service/service_main.cpp",
++    ],
++    shared_libs: [
++        "android.hardware.bluetooth-V1-ndk",
++        "libbase",
++        "libbinder_ndk",
++        "libcutils",
++        "liblog",
++        "libutils",
++    ],
++    static_libs: [
++        "libbluetooth_hal",
++    ],
++    cflags: [
++        "-Wall",
++        "-Werror",
++    ],
++}
+diff --git a/bluetooth/bluetooth_hal/chip/chip_provisioner.cc b/bluetooth/bluetooth_hal/chip/chip_provisioner.cc
+index 41f3aeaefc..116e181b0b 100644
+--- a/bluetooth/bluetooth_hal/chip/chip_provisioner.cc
++++ b/bluetooth/bluetooth_hal/chip/chip_provisioner.cc
+@@ -59,7 +59,19 @@ constexpr char kRandGenBdaddrPath[] =
+ constexpr char kEvbDefaultBdaddrProp[] = "ro.vendor.bluetooth.evb_bdaddr";
+ constexpr uint16_t kHciVscWriteBdAddress = 0xfc01;
+ constexpr uint16_t kHciVscWriteBdAddressLength = 0x0A;
+-constexpr int kCommandTimeoutMs = 2000;
++// [bring-up] 2s is not enough on this board. The FinalReset HCI Reset is
++// queued behind the whole 176 KB patchram in the transport's data processor
++// buffer; at 115200 baud that alone takes ~15 s to reach the controller, and
++// the controller only then resets and answers. Waiting 2 s from the moment
++// the Reset enters the buffer always timed out:
++//
++//   I chip_provisioner: Writing firmware patchram.            (41.670)
++//   I chip_provisioner: End-of-file packet (launch RAM)...    (41.686)
++//   E chip_provisioner: SendCommandAndWait: Command timeout
++//     waiting for (4)[01 03 0c 00]                            (44.190)
++//
++// 40 s covers 176 KB @ 115200 + firmware boot time with margin.
++constexpr int kCommandTimeoutMs = 40000;
+ 
+ std::string_view ProvisioningStateToString(
+     ChipProvisioner::ProvisioningState state) {
+@@ -514,9 +526,27 @@ bool ChipProvisioner::WriteFwPatchramPacket() {
+         return false;
+       }
+     } else {
+-      if (!SendCommandAndWait(data_packet->GetPayload())) {
+-        LOG(ERROR) << __func__
+-                   << ": Failed to send final firmware data packet.";
++      // [bring-up] A kDataEnd packet is the last record of a .hcd file, which
++      // for Broadcom is the launch-RAM command (0xFC4E). The controller resets
++      // and jumps into the freshly downloaded firmware as soon as it receives
++      // it, so it never emits the Command Complete that SendCommandAndWait
++      // waits for. Waiting therefore always times out and aborts provisioning:
++      //
++      //   E chip_provisioner: SendCommandAndWait: Command timeout waiting
++      //     for (8)[01 4e fc 04 ff ff ff ff]
++      //   E chip_provisioner: WriteFwPatchramPacket: Failed to send final
++      //     firmware data packet.
++      //   F chip_provisioner: DownloadFirmware: Failed to complete download
++      //     firmware. Final state: 13
++      //
++      // Fire-and-forget for this packet. The following kFinalReset step
++      // re-syncs with the controller via HCI Reset, so losing the ack here is
++      // harmless -- that reset only succeeds if the firmware really started.
++      LOG(INFO) << __func__
++                << ": End-of-file packet (launch RAM), sending without "
++                   "waiting for a response";
++      if (!SendCommandNoAck(data_packet->GetPayload())) {
++        LOG(ERROR) << __func__ << ": Failed to send launch RAM packet.";
+         return false;
+       }
+       files_completed++;
+diff --git a/bluetooth/bluetooth_hal/config/hal_config_loader.cc b/bluetooth/bluetooth_hal/config/hal_config_loader.cc
+index fa03a0730b..77cbf8de64 100644
+--- a/bluetooth/bluetooth_hal/config/hal_config_loader.cc
++++ b/bluetooth/bluetooth_hal/config/hal_config_loader.cc
+@@ -237,8 +237,43 @@ bool HalConfigLoaderImpl::IsTranportFallbackEnabled() const {
+ 
+ BaudRate HalConfigLoaderImpl::GetUartBaudRate(
+     [[maybe_unused]] TransportType type) const {
+-  // TODO: b/421025035 - Put the value into the json file.
+-  return BaudRate::kRate4000000;
++  // [bring-up] Follow the hci_update_chip_baud_rate command in
++  // firmware_config.json instead of a hard-coded rate.
++  //
++  // This value is what the transport switches the tty to after
++  // HalState::kFirmwareDownloading / kFirmwareReady. It must equal the rate the
++  // 0xFC18 command told the controller to use, otherwise every subsequent
++  // HCI exchange happens at mismatched speeds:
++  //
++  //   I chip_provisioner: SetRuntimeBaudRate ... [Success]   (ack at old rate)
++  //   E chip_provisioner: SendCommandAndWait: Command timeout waiting
++  //     for (4)[01 2e fc 00]                                   (0xFC2E at new rate)
++  //
++  // On this board the controller-side baud switch is left out of the setup
++  // sequence entirely (see device/samsung/sm8150-common/bluetooth/
++  // firmware_config.json), so both sides must stay at 115200. Overriding the
++  // default kRate4000000 with the property below keeps the tty and the
++  // controller in sync either way.
++  const std::string baud_prop = "vendor.bluetooth.uart.baud.rate";
++  std::string rate_str =
++      AndroidBaseWrapper::GetWrapper().GetProperty(baud_prop, "115200");
++  int rate = atoi(rate_str.c_str());
++  switch (rate) {
++    case static_cast<int>(BaudRate::kRate115200):
++      return BaudRate::kRate115200;
++    case static_cast<int>(BaudRate::kRate3000000):
++      return BaudRate::kRate3000000;
++    case static_cast<int>(BaudRate::kRate4000000):
++      return BaudRate::kRate4000000;
++    case static_cast<int>(BaudRate::kRate6000000):
++      return BaudRate::kRate6000000;
++    case static_cast<int>(BaudRate::kRate9600000):
++      return BaudRate::kRate9600000;
++    default:
++      LOG(ERROR) << __func__ << ": unsupported " << baud_prop << "=" << rate
++                 << ", falling back to 115200";
++      return BaudRate::kRate115200;
++  }
+ }
+ 
+ bool HalConfigLoaderImpl::IsBtSnoopLogFullModeOn() const {
+diff --git a/bluetooth/bluetooth_hal/hci_router.cc b/bluetooth/bluetooth_hal/hci_router.cc
+index c83c42c82f..e47516b735 100644
+--- a/bluetooth/bluetooth_hal/hci_router.cc
++++ b/bluetooth/bluetooth_hal/hci_router.cc
+@@ -128,8 +128,22 @@ class TxTask {
+ class TxHandler {
+  public:
+   TxHandler() {
++    // [bring-up] The default queue depth of 10 is fine for interactive HCI
++    // traffic, but firmware provisioning with
++    // firmware_data_loading_type=PACKET_BY_PACKET enqueues one TxTask per
++    // .hcd record (~200 bytes each). At 115200 baud the producer outruns the
++    // UART by orders of magnitude, the queue fills within a second, and
++    // Worker::Post hits its 10 s timeout:
++    //
++    //   F hci_router: Post: Timeout, no space in the message queue.
++    //   F DEBUG: ... ChipProvisioner::WriteFwPatchramPacket()
++    //
++    // 4096 entries cover a 176 KB patchram (~880 records) many times over;
++    // the entries are small (a packet span + destination), so the extra
++    // memory is a few hundred KiB at worst.
+     tx_thread_ = std::make_unique<util::Worker<TxTask>>(
+-        std::bind_front(&TxHandler::TxTaskDispatcher, this));
++        std::bind_front(&TxHandler::TxTaskDispatcher, this),
++        /*max_queue_size=*/4096);
+   }
+ 
+   ~TxHandler() { SetBusy(false); }
+diff --git a/camera/device/1.0/default/Android.bp b/camera/device/1.0/default/Android.bp
+index 65891df35a..d85f8f0ae9 100644
+--- a/camera/device/1.0/default/Android.bp
++++ b/camera/device/1.0/default/Android.bp
+@@ -14,6 +14,9 @@ cc_library_shared {
+     proprietary: true,
+     srcs: [
+         "CameraDevice.cpp",
++        // [bring-up] Emits the pre-Android-12 mangled name for CameraDevice's
++        // constructor; Samsung's camera.provider@4.0-legacy.so binds it.
++        "CameraDeviceAbiCompat.cpp",
+     ],
+     shared_libs: [
+         "libhidlbase",
+diff --git a/camera/device/1.0/default/CameraDevice.cpp b/camera/device/1.0/default/CameraDevice.cpp
+index 80733d1908..62c450f7fe 100644
+--- a/camera/device/1.0/default/CameraDevice.cpp
++++ b/camera/device/1.0/default/CameraDevice.cpp
+@@ -115,6 +115,7 @@ CameraDevice::CameraDevice(
+     }
+ }
+ 
++
+ CameraDevice::~CameraDevice() {
+     Mutex::Autolock _l(mLock);
+     if (mDevice != nullptr) {
+diff --git a/camera/device/3.2/default/Android.bp b/camera/device/3.2/default/Android.bp
+index c14f9df58d..ef958c7c6e 100644
+--- a/camera/device/3.2/default/Android.bp
++++ b/camera/device/3.2/default/Android.bp
+@@ -20,6 +20,9 @@ cc_library_shared {
+         "CameraDevice.cpp",
+         "CameraDeviceSession.cpp",
+         "convert.cpp",
++        // [bring-up] Emits pre-Android-12 mangled names for CameraDeviceSession
++        // helpers; Samsung's camera.device@5.0-impl.so binds them.
++        "CameraSessionAbiCompat.cpp",
+     ],
+     shared_libs: [
+         "libhidlbase",
+diff --git a/cas/1.2/default/android.hardware.cas@1.2-service.rc b/cas/1.2/default/android.hardware.cas@1.2-service.rc
+index 4b638bc9a8..4245da1b22 100644
+--- a/cas/1.2/default/android.hardware.cas@1.2-service.rc
++++ b/cas/1.2/default/android.hardware.cas@1.2-service.rc
+@@ -3,5 +3,3 @@ service vendor.cas-hal-1-2 /vendor/bin/hw/android.hardware.cas@1.2-service
+     user media
+     group mediadrm drmrpc
+     capabilities SYS_NICE
+-    ioprio rt 4
+-    task_profiles ProcessCapacityHigh
+diff --git a/gatekeeper/aidl/software/Android.bp b/gatekeeper/aidl/software/Android.bp
+index cbd9484cf2..c36b9aaa05 100644
+--- a/gatekeeper/aidl/software/Android.bp
++++ b/gatekeeper/aidl/software/Android.bp
+@@ -44,6 +44,57 @@ cc_binary {
+     vendor: true,
+ }
+ 
++// Avium beyond1q: vendor-partition build of the same AIDL gatekeeper service.
++//
++// The APEX copy can never reach the Samsung MDFPP TEE gatekeeper: an APEX
++// binary's linker namespace has permitted_paths limited to the APEX, /system
++// and /system_ext, so /vendor/lib64/hw/gatekeeper.default.so is rejected even
++// when dlopen()ed by absolute path:
++//   W linker: library "/vendor/lib64/hw/gatekeeper.default.so" ... is not
++//   accessible for the namespace: [name="(default)",
++//   default_library_paths="/apex/com.android.hardware.gatekeeper/lib64",
++//   permitted_paths="/apex/.../lib64:/system/lib64:/system_ext/lib64"]
++// The software fallback then mints HATs with a non-TEE HMAC key and the
++// fingerprint trustlet rejects them, so enrollment always fails with
++//   E bauth_FPBAuthService: BAuth_Hat_OP fail rv : 28
++//   E bauth_FPBAuthService: enroll system fail BAuthSensorControl_DeviceEnableInt
++//
++// This copy installs to /vendor/bin/hw, runs in the vendor namespace that does
++// contain /vendor/${LIB}/hw, and can therefore open the patched TEE module
++// (gatekeeper.default.so -> libcrypto_gk + libQSEEComAPI). Its rc is the only
++// gatekeeper service definition on the device; the APEX one is not shipped.
++cc_binary {
++    name: "avium.gatekeeper-service.vendor",
++    cflags: [
++        "-fvisibility=hidden",
++        "-Wall",
++        "-Werror",
++    ],
++    relative_install_path: "hw",
++    shared_libs: [
++        "android.hardware.gatekeeper-V1-ndk",
++        "android.hardware.security.sharedsecret-V1-ndk",
++        "libbase",
++        "libbinder_ndk",
++        "libcrypto",
++        "libcutils",
++        "libgatekeeper",
++        "libhardware",
++        "libkeymaster_portable",
++        "liblog",
++        "libutils",
++    ],
++    srcs: [
++        "GateKeeper.cpp",
++        "SharedSecret.cpp",
++        "service.cpp",
++    ],
++    static_libs: ["libscrypt_static"],
++    vendor: true,
++    init_rc: ["avium.gatekeeper-service.vendor.rc"],
++    vintf_fragments: ["avium.gatekeeper-service.vendor.xml"],
++}
++
+ prebuilt_etc {
+     name: "gatekeeper_nonsecure_vintf",
+     srcs: [
+@@ -60,6 +111,11 @@ prebuilt_etc {
+     installable: false,
+ }
+ 
++// Avium beyond1q: this APEX is built but NOT installed (see common.mk). Its rc
++// is deliberately not packaged either - the vendor service
++// (avium.gatekeeper-service.vendor.rc) is the only IGatekeeper/default
++// definition, because this APEX binary's linker namespace cannot reach
++// /vendor/lib64/hw and would fall back to the software gatekeeper.
+ apex {
+     name: "com.android.hardware.gatekeeper.nonsecure",
+     binaries: ["android.hardware.gatekeeper-service.nonsecure"],
+@@ -69,7 +125,6 @@ apex {
+     manifest: "manifest.json",
+     prebuilts: [
+         "gatekeeper_nonsecure_vintf",
+-        "android.hardware.gatekeeper-service.nonsecure.rc",
+     ],
+     updatable: false,
+     vendor: true,
+diff --git a/gatekeeper/aidl/software/GateKeeper.cpp b/gatekeeper/aidl/software/GateKeeper.cpp
+index 1fc3682a80..946cb3aebe 100644
+--- a/gatekeeper/aidl/software/GateKeeper.cpp
++++ b/gatekeeper/aidl/software/GateKeeper.cpp
+@@ -16,9 +16,15 @@
+ #define LOG_TAG "android.hardware.gatekeeper-service.nonsecure"
+ 
+ #include <endian.h>
++#include <string.h>
++
++#include <dlfcn.h>
+ 
+ #include <android-base/logging.h>
+ 
++#include <hardware/gatekeeper.h>
++#include <hardware/hardware.h>
++
+ #include "GateKeeper.h"
+ 
+ using ::gatekeeper::EnrollRequest;
+@@ -146,4 +152,176 @@ SoftGateKeeperDevice::SoftGateKeeperDevice(::gatekeeper::SoftGateKeeper& impl) :
+     return ndk::ScopedAStatus(AStatus_fromServiceSpecificError(ERROR_NOT_IMPLEMENTED));
+ }
+ 
++// ---------------------------------------------------------------------------
++// [bring-up] Samsung MDFPP TEE gatekeeper bridge
++// ---------------------------------------------------------------------------
++
++std::shared_ptr<VendorGateKeeperDevice> VendorGateKeeperDevice::create() {
++    // Avium beyond1q: this service runs from the
++    // com.android.hardware.gatekeeper.nonsecure APEX, whose linker namespace
++    // does not include /vendor/${LIB}/hw. hw_get_module_by_class() therefore
++    // always fails with ENOENT ("No vendor gatekeeper HAL module (ret=-2)")
++    // even though the patched Samsung MDFPP module is installed at
++    // /vendor/lib64/hw/gatekeeper.default.so. The software fallback then mints
++    // HATs with a non-TEE HMAC key and the fingerprint trustlet rejects them:
++    //   E bauth_FPBAuthService: BAuth_Hat_OP fail rv : 28
++    // Load the vendor module by absolute path: dlopen() with a full path skips
++    // the namespace search, and the module's own DT_NEEDED (libcrypto_gk,
++    // libQSEEComAPI, libion) resolve through the vendor namespace.
++    const hw_module_t* module = nullptr;
++    int ret = -1;
++    void* handle = dlopen("/vendor/lib64/hw/gatekeeper.default.so", RTLD_NOW | RTLD_LOCAL);
++    if (handle != nullptr) {
++        auto* hmi = static_cast<const hw_module_t*>(dlsym(handle, HAL_MODULE_INFO_SYM_AS_STR));
++        if (hmi != nullptr) {
++            module = hmi;
++            ret = 0;
++            LOG(INFO) << "Loaded vendor gatekeeper module by absolute path";
++        } else {
++            LOG(WARNING) << "gatekeeper.default.so has no HAL_MODULE_INFO_SYM";
++            dlclose(handle);
++        }
++    } else {
++        LOG(WARNING) << "dlopen(gatekeeper.default.so) failed: " << dlerror();
++    }
++    if (ret != 0 || module == nullptr) {
++        // Last resort: normal HAL lookup (succeeds when the binary runs outside
++        // the APEX namespace).
++        ret = hw_get_module_by_class(GATEKEEPER_HARDWARE_MODULE_ID, NULL, &module);
++    }
++    if (ret != 0 || module == nullptr) {
++        LOG(WARNING) << "No vendor gatekeeper HAL module (ret=" << ret
++                     << "), falling back to software gatekeeper";
++        return nullptr;
++    }
++    auto dev = ndk::SharedRefBase::make<VendorGateKeeperDevice>();
++    dev->mModule = module;
++    gatekeeper_device_t* device = nullptr;
++    ret = gatekeeper_open(module, &device);
++    if (ret != 0 || device == nullptr) {
++        LOG(WARNING) << "gatekeeper_open failed (ret=" << ret
++                     << "), falling back to software gatekeeper";
++        return nullptr;
++    }
++    dev->mDevice = device;
++    LOG(INFO) << "Vendor TEE gatekeeper HAL opened: " << module->name
++              << " author=" << module->author;
++    return dev;
++}
++
++VendorGateKeeperDevice::~VendorGateKeeperDevice() {
++    std::lock_guard<std::mutex> lock(mLock);
++    if (mDevice != nullptr) {
++        gatekeeper_close(mDevice);
++        mDevice = nullptr;
++    }
++}
++
++::ndk::ScopedAStatus VendorGateKeeperDevice::enroll(
++        int32_t uid, const std::vector<uint8_t>& currentPasswordHandle,
++        const std::vector<uint8_t>& currentPassword,
++        const std::vector<uint8_t>& desiredPassword, GatekeeperEnrollResponse* rsp) {
++    std::lock_guard<std::mutex> lock(mLock);
++    if (mDevice == nullptr) {
++        return ndk::ScopedAStatus(AStatus_fromServiceSpecificError(ERROR_GENERAL_FAILURE));
++    }
++    if (desiredPassword.empty()) {
++        LOG(ERROR) << "Desired password size is 0";
++        return ndk::ScopedAStatus(AStatus_fromServiceSpecificError(ERROR_GENERAL_FAILURE));
++    }
++
++    uint8_t* handle = nullptr;
++    uint32_t handle_len = 0;
++    int ret = mDevice->enroll(mDevice, static_cast<uint32_t>(uid),
++                              currentPasswordHandle.empty() ? nullptr
++                                                            : currentPasswordHandle.data(),
++                              currentPasswordHandle.size(),
++                              currentPassword.empty() ? nullptr : currentPassword.data(),
++                              currentPassword.size(), desiredPassword.data(),
++                              desiredPassword.size(), &handle, &handle_len);
++    if (ret == 0 && handle != nullptr && handle_len > 0) {
++        // The legacy handle is a gatekeeper::password_handle_t; the AIDL layer
++        // needs the secure user id that lives inside it.
++        int64_t secureUserId = 0;
++        if (handle_len >= sizeof(::gatekeeper::password_handle_t)) {
++            const auto* ph = reinterpret_cast<const ::gatekeeper::password_handle_t*>(handle);
++            secureUserId = static_cast<int64_t>(ph->user_id);
++        }
++        *rsp = {STATUS_OK,
++                0,
++                secureUserId,
++                std::vector<uint8_t>(handle, handle + handle_len)};
++        delete[] handle;
++        return ndk::ScopedAStatus::ok();
++    }
++    if (ret > 0) {
++        *rsp = {ERROR_RETRY_TIMEOUT, ret, 0, {}};
++        return ndk::ScopedAStatus::ok();
++    }
++    LOG(ERROR) << "vendor gatekeeper enroll failed: " << ret;
++    return ndk::ScopedAStatus(AStatus_fromServiceSpecificError(ERROR_GENERAL_FAILURE));
++}
++
++::ndk::ScopedAStatus VendorGateKeeperDevice::verify(
++        int32_t uid, int64_t challenge, const std::vector<uint8_t>& enrolledPasswordHandle,
++        const std::vector<uint8_t>& providedPassword, GatekeeperVerifyResponse* rsp) {
++    std::lock_guard<std::mutex> lock(mLock);
++    if (mDevice == nullptr) {
++        return ndk::ScopedAStatus(AStatus_fromServiceSpecificError(ERROR_GENERAL_FAILURE));
++    }
++    if (enrolledPasswordHandle.empty()) {
++        LOG(ERROR) << "Enrolled password size is 0";
++        return ndk::ScopedAStatus(AStatus_fromServiceSpecificError(ERROR_GENERAL_FAILURE));
++    }
++
++    uint8_t* token = nullptr;
++    uint32_t token_len = 0;
++    bool request_reenroll = false;
++    int ret = mDevice->verify(mDevice, static_cast<uint32_t>(uid),
++                              static_cast<uint64_t>(challenge), enrolledPasswordHandle.data(),
++                              enrolledPasswordHandle.size(), providedPassword.data(),
++                              providedPassword.size(), &token, &token_len, &request_reenroll);
++    if (ret == 0 && token != nullptr && token_len >= sizeof(hw_auth_token_t)) {
++        *rsp = {request_reenroll ? STATUS_REENROLL : STATUS_OK, 0, {}};
++        const auto* authToken = reinterpret_cast<const hw_auth_token_t*>(token);
++        rsp->hardwareAuthToken.challenge = authToken->challenge;
++        rsp->hardwareAuthToken.userId = authToken->user_id;
++        rsp->hardwareAuthToken.authenticatorId = authToken->authenticator_id;
++        rsp->hardwareAuthToken.authenticatorType =
++                static_cast<android::hardware::security::keymint::HardwareAuthenticatorType>(
++                        be32toh(authToken->authenticator_type));
++        rsp->hardwareAuthToken.timestamp.milliSeconds = be64toh(authToken->timestamp);
++        rsp->hardwareAuthToken.mac.assign(std::begin(authToken->hmac), std::end(authToken->hmac));
++        delete[] token;
++        return ndk::ScopedAStatus::ok();
++    }
++    if (token != nullptr) delete[] token;
++    if (ret > 0) {
++        *rsp = {ERROR_RETRY_TIMEOUT, ret, {}};
++        return ndk::ScopedAStatus::ok();
++    }
++    LOG(ERROR) << "vendor gatekeeper verify failed: " << ret;
++    return ndk::ScopedAStatus(AStatus_fromServiceSpecificError(ERROR_GENERAL_FAILURE));
++}
++
++::ndk::ScopedAStatus VendorGateKeeperDevice::deleteAllUsers() {
++    std::lock_guard<std::mutex> lock(mLock);
++    if (mDevice == nullptr || mDevice->delete_all_users == nullptr) {
++        return ndk::ScopedAStatus(AStatus_fromServiceSpecificError(ERROR_NOT_IMPLEMENTED));
++    }
++    return mDevice->delete_all_users(mDevice) == 0
++                   ? ndk::ScopedAStatus::ok()
++                   : ndk::ScopedAStatus(AStatus_fromServiceSpecificError(ERROR_GENERAL_FAILURE));
++}
++
++::ndk::ScopedAStatus VendorGateKeeperDevice::deleteUser(int32_t uid) {
++    std::lock_guard<std::mutex> lock(mLock);
++    if (mDevice == nullptr || mDevice->delete_user == nullptr) {
++        return ndk::ScopedAStatus(AStatus_fromServiceSpecificError(ERROR_NOT_IMPLEMENTED));
++    }
++    return mDevice->delete_user(mDevice, static_cast<uint32_t>(uid)) == 0
++                   ? ndk::ScopedAStatus::ok()
++                   : ndk::ScopedAStatus(AStatus_fromServiceSpecificError(ERROR_GENERAL_FAILURE));
++}
++
+ }  // namespace aidl::android::hardware::gatekeeper
+diff --git a/gatekeeper/aidl/software/GateKeeper.h b/gatekeeper/aidl/software/GateKeeper.h
+index 1327fad793..06a8c00514 100644
+--- a/gatekeeper/aidl/software/GateKeeper.h
++++ b/gatekeeper/aidl/software/GateKeeper.h
+@@ -18,6 +18,12 @@
+ #include <aidl/android/hardware/gatekeeper/BnGatekeeper.h>
+ #include <gatekeeper/gatekeeper_messages.h>
+ 
++#include <hardware/gatekeeper.h>
++
++#include <memory>
++#include <mutex>
++#include <vector>
++
+ #include "SoftGateKeeper.h"
+ 
+ namespace aidl::android::hardware::gatekeeper {
+@@ -63,4 +69,36 @@ class SoftGateKeeperDevice : public BnGatekeeper {
+     ::gatekeeper::SoftGateKeeper& impl_;
+ };
+ 
++// [bring-up] AIDL wrapper around the Samsung MDFPP TEE gatekeeper module
++// (gatekeeper.default.so -> QSEECom -> TEE). The software implementation
++// cannot mint a HardwareAuthToken the TEE fingerprint trustlet accepts
++// (BAuth_Hat_OP fails with rv 28 because the HMAC key is not the TEE one).
++// Falls back to SoftGateKeeperDevice when the vendor module is unavailable.
++class VendorGateKeeperDevice : public BnGatekeeper {
++  public:
++    static std::shared_ptr<VendorGateKeeperDevice> create();
++
++    ::ndk::ScopedAStatus enroll(int32_t uid, const std::vector<uint8_t>& currentPasswordHandle,
++                                const std::vector<uint8_t>& currentPassword,
++                                const std::vector<uint8_t>& desiredPassword,
++                                GatekeeperEnrollResponse* _aidl_return) override;
++    ::ndk::ScopedAStatus verify(int32_t uid, int64_t challenge,
++                                const std::vector<uint8_t>& enrolledPasswordHandle,
++                                const std::vector<uint8_t>& providedPassword,
++                                GatekeeperVerifyResponse* _aidl_return) override;
++    ::ndk::ScopedAStatus deleteAllUsers() override;
++    ::ndk::ScopedAStatus deleteUser(int32_t uid) override;
++
++    ~VendorGateKeeperDevice() override;
++
++    // Public: ndk::SharedRefBase::make<>() constructs it.
++    VendorGateKeeperDevice() = default;
++
++  private:
++
++    std::mutex mLock;
++    const hw_module_t* mModule = nullptr;
++    gatekeeper_device_t* mDevice = nullptr;
++};
++
+ }  // namespace aidl::android::hardware::gatekeeper
+diff --git a/gatekeeper/aidl/software/android.hardware.gatekeeper-service.nonsecure.rc b/gatekeeper/aidl/software/android.hardware.gatekeeper-service.nonsecure.rc
+index d361730d0a..eea23e2148 100644
+--- a/gatekeeper/aidl/software/android.hardware.gatekeeper-service.nonsecure.rc
++++ b/gatekeeper/aidl/software/android.hardware.gatekeeper-service.nonsecure.rc
+@@ -1,4 +1,18 @@
+ service vendor.gatekeeper_nonsecure /apex/com.android.hardware.gatekeeper/bin/hw/android.hardware.gatekeeper-service.nonsecure
+     class early_hal
+     user system
+-    group system
++    group system drmrpc
++    # drmrpc (gid 1026) is required: /dev/qseecom is system:drmrpc and the
++    # Samsung MDFPP TEE gatekeeper module opens it to reach the gatekeeper TA.
++
++# Avium beyond1q: force the TEE gatekeeper path.
++#
++# service.cpp reads ro.vendor.gatekeeper.soft, then persist.vendor.gatekeeper.soft,
++# and defaults to "1" (software). The software gatekeeper mints HATs with a
++# non-TEE HMAC key, which the fingerprint trustlet rejects, so enrollment always
++# dies with "BAuth_Hat_OP fail rv : 28". Setting the property here (init can set
++# vendor props) makes the service probe the patched TEE module instead. The
++# module is loaded by absolute path from GateKeeper.cpp because the APEX linker
++# namespace does not include /vendor/${LIB}/hw.
++on early-init
++    setprop persist.vendor.gatekeeper.soft 0
+diff --git a/gatekeeper/aidl/software/service.cpp b/gatekeeper/aidl/software/service.cpp
+index beef8c41dd..d76473e722 100644
+--- a/gatekeeper/aidl/software/service.cpp
++++ b/gatekeeper/aidl/software/service.cpp
+@@ -20,28 +20,93 @@
+ #include <android/binder_process.h>
+ #include <cutils/properties.h>
+ 
++
++#include <memory>
++#include <thread>
++#include <string>
++
+ #include "GateKeeper.h"
+ #include "SharedSecret.h"
+ #include "SoftGateKeeper.h"
+ 
++using aidl::android::hardware::gatekeeper::BnGatekeeper;
+ using aidl::android::hardware::gatekeeper::SoftGateKeeperDevice;
++using aidl::android::hardware::gatekeeper::VendorGateKeeperDevice;
+ using aidl::android::hardware::security::sharedsecret::SoftSharedSecret;
+ 
+ int main(int, char** argv) {
+     ::android::base::InitLogging(argv, ::android::base::KernelLogger);
+-    ABinderProcess_setThreadPoolMaxThreadCount(0);
++    // Avium beyond1q: a non-zero thread pool is required here.
++    //
++    // With the stock value 0 this process ends up with Threads: 1 stuck in
++    // binder_ioctl_write_read, IGatekeeper/default is registered but dead, and
++    // gatekeeperd reports
++    //   Waited one second for android.hardware.gatekeeper.IGatekeeper/default
++    //   (is service started? Number of threads started in the threadpool: 0)
++    // so every LockSettingsService enroll fails with "incorrect credential" and
++    // a PIN can never be set. Two pool threads cover the HAL calls plus the
++    // detached ISharedSecret registration.
++    ABinderProcess_setThreadPoolMaxThreadCount(2);
++    ABinderProcess_startThreadPool();
+ 
++    // [v135] Register IGatekeeper/default FIRST. BiometricService blocks
++    // system_server startup on it, while ISharedSecret/gatekeeper is only used
++    // by keystore2's shared-secret negotiation (which tolerates NAME_NOT_FOUND
++    // and retries). Previously the ISharedSecret addService never returned on
++    // this device, so the gatekeeper registration was never reached.
+     auto secret = ndk::SharedRefBase::make<SoftSharedSecret>();
+     std::string secret_instance = SoftSharedSecret::descriptor + std::string("/gatekeeper");
+-    auto status = AServiceManager_addService(secret->asBinder().get(), secret_instance.c_str());
+-    CHECK_EQ(status, STATUS_OK);
+ 
+-    ::gatekeeper::SoftGateKeeper implementation(*secret);
+-    auto gatekeeper = ndk::SharedRefBase::make<SoftGateKeeperDevice>(implementation);
+-    const std::string instance = SoftGateKeeperDevice::descriptor + std::string("/default");
+-    status = AServiceManager_addService(gatekeeper->asBinder().get(), instance.c_str());
++    // [bring-up] Prefer the Samsung MDFPP TEE gatekeeper (real QSEECom-backed
++    // HATs). The software implementation cannot mint a token the TEE
++    // fingerprint trustlet accepts (BAuth_Hat_OP rv 28 -> enrollment fails).
++    //
++    // [v135] The TEE path hangs before returning: gatekeeper.mdfpp.so's init
++    // blocks on a vndbinder transaction (A16 has no vndservicemanager), so
++    // hw_get_module never comes back and IGatekeeper/default is never
++    // registered -> BiometricService throws -> system_server crash loop.
++    // persist.vendor.gatekeeper.soft=1 (default 1) skips the TEE probe so the
++    // software gatekeeper serves IGatekeeper/default; flip to 0 to re-probe
++    // the TEE path once the mdfpp dependency set is fixed.
++    char softMode[PROP_VALUE_MAX] = {0};
++    // Avium beyond1q: read ro.* first (set from system.prop, always present and
++    // readable by vendor domains); fall back to the persist.* override.
++    property_get("ro.vendor.gatekeeper.soft", softMode, "");
++    if (softMode[0] == '\0') {
++        property_get("persist.vendor.gatekeeper.soft", softMode, "1");
++    }
++    std::shared_ptr<BnGatekeeper> gatekeeper = nullptr;
++    if (softMode[0] != '0') {
++        LOG(WARNING) << "persist.vendor.gatekeeper.soft=1: using software"
++                        " gatekeeper (TEE path disabled by property)";
++        gatekeeper = nullptr;
++    } else {
++        gatekeeper = VendorGateKeeperDevice::create();
++    }
++    if (gatekeeper == nullptr) {
++        LOG(WARNING) << "Using software gatekeeper (no TEE HAL available)";
++        static ::gatekeeper::SoftGateKeeper implementation(*secret);
++        gatekeeper = ndk::SharedRefBase::make<SoftGateKeeperDevice>(implementation);
++    }
++    const std::string instance =
++            std::string(BnGatekeeper::descriptor) + std::string("/default");
++    auto status = AServiceManager_addService(gatekeeper->asBinder().get(), instance.c_str());
+     CHECK_EQ(status, STATUS_OK);
+ 
++    // Avium beyond1q: do NOT register ISharedSecret/gatekeeper from here.
++    //
++    // hal_sharedsecret_service is a protected service whose neverallow
++    // (system/sepolicy/vendor/hal_keymint_default.te) only admits keymint, so
++    // hal_gatekeeper_default can never be granted the add. The attempt used to
++    // be "best effort" but on this device the denied add blocked the process:
++    // it ended up with Threads: 1 stuck in binder_ioctl_write_read and
++    // IGatekeeper/default registered-but-dead, which made every
++    // LockSettingsService enroll fail with "incorrect credential" -- no PIN
++    // could be set and fingerprint enrollment could never start.
++    // keystore2 tolerates NAME_NOT_FOUND here and retries, so dropping it is
++    // safe and keeps the gatekeeper path clean.
++    (void)secret_instance;
++
+     ABinderProcess_joinThreadPool();
+     return -1;  // Should never get here.
+ }
+diff --git a/graphics/composer/2.1/default/android.hardware.graphics.composer@2.1-service.rc b/graphics/composer/2.1/default/android.hardware.graphics.composer@2.1-service.rc
+index c8fccdce20..fc0601bba1 100644
+--- a/graphics/composer/2.1/default/android.hardware.graphics.composer@2.1-service.rc
++++ b/graphics/composer/2.1/default/android.hardware.graphics.composer@2.1-service.rc
+@@ -5,4 +5,3 @@ service vendor.hwcomposer-2-1 /vendor/bin/hw/android.hardware.graphics.composer@
+     group graphics drmrpc
+     capabilities SYS_NICE
+     onrestart restart surfaceflinger
+-    task_profiles ServiceCapacityLow
+diff --git a/health/aidl/default/Android.bp b/health/aidl/default/Android.bp
+index cc5d0a05b0..cec4fd4930 100644
+--- a/health/aidl/default/Android.bp
++++ b/health/aidl/default/Android.bp
+@@ -98,7 +98,7 @@ cc_library_static {
+         "libhealth_aidl_common_defaults",
+         "libhealth_aidl_charger_defaults",
+     ],
+-    vendor: true,
++    vendor_available: true,
+     recovery_available: true,
+     export_include_dirs: ["include"],
+     export_static_lib_headers: [
+@@ -151,6 +151,30 @@ cc_binary {
+     init_rc: ["android.hardware.health-service.example.rc"],
+     overrides: ["charger"],
+ }
++// Avium beyond1q (v132bw): SYSTEM variant. BatteryService (system_server main
++// thread) constructs HealthServiceWrapperAidl which does
++// ServiceManager.waitForService(IHealth) with no timeout; the vendor example
++// health registers on vndSM (no bridge in this bp4a), so the boot thread
++// stalls at StartBatteryService forever. Same gap as power/lights/keymint.
++// Reads the identical /sys/class/power_supply nodes, visible from both
++// partitions. Deliberately NOT using example-defaults: that defaults block
++// carries vintf_fragments which soong list-override cannot clear, and the
++// vendor example module already owns the fragment.
++cc_binary {
++    name: "android.hardware.health-service.avium",
++    relative_install_path: "hw",
++    defaults: [
++        "libhealth_aidl_common_defaults",
++        "libhealth_aidl_charger_defaults",
++    ],
++    static_libs: [
++        "libhealth_aidl_impl",
++        "libcharger_sysprop",
++    ],
++    srcs: ["main.cpp"],
++    init_rc: ["android.hardware.health-service.avium.rc"],
++}
++
+ 
+ cc_binary {
+     name: "android.hardware.health-service.example_recovery",
+@@ -207,3 +231,16 @@ cc_fuzz {
+         ],
+     },
+ }
++
++// v132bw25: A16 fsgen requires module-based fragment references (the file-path
++// vintf_fragments property is rejected for filesystem-referenced modules).
++vintf_fragment {
++    name: "android.hardware.health-service.avium.xml",
++    src: "android.hardware.health-service.avium.xml",
++    // v132bw27: install into /vendor/etc/vintf/manifest/ - the merged DEVICE
++    // manifest is assembled from the VENDOR side (hwsM/SM FragmentSource);
++    // the previous system-partition placement (v132bw26) hung the device
++    // pre-adb, matching the other three avium HALs whose declarations come
++    // from vendor modules.
++    vendor: true,
++}
+diff --git a/keymaster/4.0/default/Android.bp b/keymaster/4.0/default/Android.bp
+index 702a7160bd..f5fd5903ca 100644
+--- a/keymaster/4.0/default/Android.bp
++++ b/keymaster/4.0/default/Android.bp
+@@ -28,7 +28,9 @@ cc_binary {
+     defaults: ["hidl_defaults"],
+     relative_install_path: "hw",
+     vendor: true,
+-    init_rc: ["android.hardware.keymaster@4.0-service.rc"],
++    // init_rc intentionally omitted: beyond1q installs the stock Samsung
++    // keymaster (TEE) whose rc owns vendor/etc/init/...4.0-service.rc;
++    // keeping both would be an "overriding commands" conflict in kati.
+     srcs: ["service.cpp"],
+ 
+     shared_libs: [
+diff --git a/radio/aidl/compat/libradiocompat/Android.bp b/radio/aidl/compat/libradiocompat/Android.bp
+index 04aed77c93..f72a9d6e8f 100644
+--- a/radio/aidl/compat/libradiocompat/Android.bp
++++ b/radio/aidl/compat/libradiocompat/Android.bp
+@@ -112,3 +112,88 @@ cc_library {
+     ],
+     export_include_dirs: ["include"],
+ }
++
++// Avium beyond1q: system variant of the radio compat library. The A16
++// telephony stack (radio UID, system side) looks for the AIDL IRadio* on
++// /dev/binder; a vendor-domain compat service registers on vndbinder which
++// system_server never sees (no vendor-AIDL bridge on this bp4a base). This
++// twin drops vendor:true so the system-domain service can link it.
++cc_library {
++    name: "android.hardware.radio-library.compat.avium",
++    defaults: ["android.hardware.radio-library.aidl_deps"],
++    // NOTE: no relative_install_path here. The service binary lives in
++    // /system/bin/hw and links this library through DT_NEEDED, so the
++    // linker resolves it from the default namespace search path
++    // (/system/lib64). Installing it under /system/lib64/hw made every
++    // start fail with:
++    //   CANNOT LINK EXECUTABLE ...radio-service.compat.avium:
++    //   library "android.hardware.radio-library.compat.avium.so" not found
++    cflags: [
++        "-Wall",
++        "-Wextra",
++        "-DANDROID_UTILS_REF_BASE_DISABLE_IMPLICIT_CONSTRUCTION",
++    ],
++    shared_libs: [
++        "android.hardware.radio.config@1.0",
++        "android.hardware.radio.config@1.1",
++        "android.hardware.radio.config@1.2",
++        "android.hardware.radio.config@1.3",
++        "android.hardware.radio@1.0",
++        "android.hardware.radio@1.1",
++        "android.hardware.radio@1.2",
++        "android.hardware.radio@1.3",
++        "android.hardware.radio@1.4",
++        "android.hardware.radio@1.5",
++        "android.hardware.radio@1.6",
++        "libbase",
++        "libbinder_ndk",
++        "libhidlbase",
++        "libutils",
++    ],
++    srcs: [
++        "CallbackManager.cpp",
++        "DriverContext.cpp",
++        "RadioCompatBase.cpp",
++        "RadioIndication.cpp",
++        "RadioResponse.cpp",
++        "commonStructs.cpp",
++        "config/RadioConfig.cpp",
++        "config/RadioConfigIndication.cpp",
++        "config/RadioConfigResponse.cpp",
++        "config/structs.cpp",
++        "data/RadioIndication-data.cpp",
++        "data/RadioResponse-data.cpp",
++        "data/RadioData.cpp",
++        "data/structs.cpp",
++        "ims/RadioIndication-ims.cpp",
++        "ims/RadioResponse-ims.cpp",
++        "ims/RadioIms.cpp",
++        "ims/media/RadioImsMediaSession.cpp",
++        "ims/media/RadioImsMedia.cpp",
++        "messaging/RadioIndication-messaging.cpp",
++        "messaging/RadioMessaging.cpp",
++        "messaging/RadioResponse-messaging.cpp",
++        "messaging/structs.cpp",
++        "modem/RadioIndication-modem.cpp",
++        "modem/RadioResponse-modem.cpp",
++        "modem/RadioModem.cpp",
++        "modem/structs.cpp",
++        "network/RadioIndication-network.cpp",
++        "network/RadioNetwork.cpp",
++        "network/RadioResponse-network.cpp",
++        "network/structs.cpp",
++        "network/utils.cpp",
++        "sap/Sap.cpp",
++        "sap/SapCallback.cpp",
++        "sap/structs.cpp",
++        "sim/RadioIndication-sim.cpp",
++        "sim/RadioResponse-sim.cpp",
++        "sim/RadioSim.cpp",
++        "sim/structs.cpp",
++        "voice/RadioIndication-voice.cpp",
++        "voice/RadioResponse-voice.cpp",
++        "voice/RadioVoice.cpp",
++        "voice/structs.cpp",
++    ],
++    export_include_dirs: ["include"],
++}
+diff --git a/radio/aidl/compat/libradiocompat/CallbackManager.cpp b/radio/aidl/compat/libradiocompat/CallbackManager.cpp
+index 77e94af4e6..77652c6c0d 100644
+--- a/radio/aidl/compat/libradiocompat/CallbackManager.cpp
++++ b/radio/aidl/compat/libradiocompat/CallbackManager.cpp
+@@ -33,7 +33,7 @@ namespace android::hardware::radio::compat {
+  */
+ static constexpr auto kDelayedSetterDelay = 100ms;
+ 
+-CallbackManager::CallbackManager(std::shared_ptr<DriverContext> context, sp<V1_5::IRadio> hidlHal)
++CallbackManager::CallbackManager(std::shared_ptr<DriverContext> context, sp<V1_4::IRadio> hidlHal)
+     : mHidlHal(hidlHal),
+       mRadioResponse(sp<compat::RadioResponse>::make(context)),
+       mRadioIndication(sp<compat::RadioIndication>::make(context)),
+@@ -87,6 +87,23 @@ void CallbackManager::delayedSetterThread() {
+         LOG(INFO) << "CallbackManager: calling deferred setResponseFunctions";
+         mHidlHal->setResponseFunctions(mRadioResponse, mRadioIndication).assertOk();
+         mDelayedSetterDeadline = std::nullopt;
++        lock.unlock();
++        // Avium beyond1q: Samsung's rild only starts the modem's network search
++        // when it receives an explicit setNetworkSelectionModeAutomatic request
++        // (OneUI's telephony always sends one right after radio power-on). AOSP
++        // telephony skips it because QUERY_NETWORK_SELECTION_MODE already
++        // reports auto, so the modem never searches and registration stays
++        // empty forever. Retry for a window after binding so at least one
++        // attempt lands after RADIO_POWER on -- early attempts hit radio-off
++        // and only produce a harmless error response on an unused serial.
++        for (int attempt = 0; attempt < 20; attempt++) {
++            if (mDestroy) break;
++            std::this_thread::sleep_for(3s);
++            const uint32_t serial = 0xC0DE0000u + attempt;
++            auto res = mHidlHal->setNetworkSelectionModeAutomatic(serial);
++            LOG(INFO) << "CallbackManager: network-selection kick " << attempt << ": "
++                      << (res.isOk() ? "ok" : res.description());
++        }
+     }
+     LOG(INFO) << "CallbackManager: delay thread destroyed";
+ }
+diff --git a/radio/aidl/compat/libradiocompat/RadioCompatBase.cpp b/radio/aidl/compat/libradiocompat/RadioCompatBase.cpp
+index 2a2d7a36e9..672a8d3bd7 100644
+--- a/radio/aidl/compat/libradiocompat/RadioCompatBase.cpp
++++ b/radio/aidl/compat/libradiocompat/RadioCompatBase.cpp
+@@ -20,7 +20,7 @@
+ 
+ namespace android::hardware::radio::compat {
+ 
+-RadioCompatBase::RadioCompatBase(std::shared_ptr<DriverContext> context, sp<V1_5::IRadio> hidlHal,
++RadioCompatBase::RadioCompatBase(std::shared_ptr<DriverContext> context, sp<V1_4::IRadio> hidlHal,
+                                  std::shared_ptr<CallbackManager> cbMgr)
+     : mContext(context),
+       mHal1_5(hidlHal),
+diff --git a/radio/aidl/compat/libradiocompat/data/RadioData.cpp b/radio/aidl/compat/libradiocompat/data/RadioData.cpp
+index 33e79fea0b..205467ace6 100644
+--- a/radio/aidl/compat/libradiocompat/data/RadioData.cpp
++++ b/radio/aidl/compat/libradiocompat/data/RadioData.cpp
+@@ -107,7 +107,7 @@ ScopedAStatus RadioData::setDataAllowed(int32_t serial, bool allow) {
+ ScopedAStatus RadioData::setDataProfile(int32_t serial,
+                                         const std::vector<aidl::DataProfileInfo>& profiles) {
+     LOG_CALL << serial;
+-    mHal1_5->setDataProfile_1_5(serial, toHidl(profiles));
++    mHal1_5->setDataProfile_1_4(serial, toHidlV1_4vec(profiles));
+     return ok();
+ }
+ 
+@@ -125,7 +125,7 @@ ScopedAStatus RadioData::setDataThrottling(int32_t serial, aidl::DataThrottlingA
+ ScopedAStatus RadioData::setInitialAttachApn(int32_t serial,
+                                              const std::optional<aidl::DataProfileInfo>& info) {
+     LOG_CALL << serial;
+-    mHal1_5->setInitialAttachApn_1_5(serial, toHidl(info.value()));
++    mHal1_5->setInitialAttachApn_1_4(serial, toHidlV1_4(info.value()));
+     return ok();
+ }
+ 
+@@ -153,9 +153,9 @@ ScopedAStatus RadioData::setupDataCall(int32_t serial, aidlCommon::AccessNetwork
+                 matchAllRuleAllowed);
+         mContext->addDataProfile(dataProfileInfo);
+     } else {
+-        mHal1_5->setupDataCall_1_5(
+-                serial, V1_5::AccessNetwork(accessNetwork), toHidl(dataProfileInfo), roamingAllowed,
+-                V1_2::DataRequestReason(reason), toHidl(addresses), toHidl(dnses));
++        mHal1_5->setupDataCall_1_4(
++                serial, V1_4::AccessNetwork(accessNetwork), toHidlV1_4(dataProfileInfo), roamingAllowed,
++                V1_2::DataRequestReason(reason), toHidlStrings(addresses), toHidlStrings(dnses));
+     }
+     return ok();
+ }
+diff --git a/radio/aidl/compat/libradiocompat/data/structs.cpp b/radio/aidl/compat/libradiocompat/data/structs.cpp
+index 47f1f86320..c72a7bb6b2 100644
+--- a/radio/aidl/compat/libradiocompat/data/structs.cpp
++++ b/radio/aidl/compat/libradiocompat/data/structs.cpp
+@@ -49,6 +49,43 @@ V1_5::DataProfileInfo toHidl(const aidl::DataProfileInfo& info) {
+     };
+ }
+ 
++// Avium beyond1q: V1_4 flavor of the DataProfileInfo conversion (a 1.4-only
++// radio HAL cannot accept the V1_5 struct). Same fields; ApnTypes uses the
++// V1_0 bitfield because V1_5::ApnTypes only adds NGRAN-related values that a
++// 1.4 HAL cannot consume anyway.
++V1_4::DataProfileInfo toHidlV1_4(const aidl::DataProfileInfo& info) {
++    return {
++            .profileId = static_cast<V1_0::DataProfileId>(info.profileId),
++            .apn = info.apn,
++            .protocol = static_cast<V1_4::PdpProtocolType>(info.protocol),
++            .roamingProtocol = static_cast<V1_4::PdpProtocolType>(info.roamingProtocol),
++            .authType = static_cast<V1_0::ApnAuthType>(info.authType),
++            .user = info.user,
++            .password = info.password,
++            .type = static_cast<V1_0::DataProfileInfoType>(info.type),
++            .maxConnsTime = info.maxConnsTime,
++            .maxConns = info.maxConns,
++            .waitTime = info.waitTime,
++            .enabled = info.enabled,
++            .supportedApnTypesBitmap = toHidlBitfield<V1_0::ApnTypes>(info.supportedApnTypesBitmap),
++            .bearerBitmap = toHidlBitfield<V1_4::RadioAccessFamily>(info.bearerBitmap),
++            .mtu = (info.mtuV4 != 0) ? info.mtuV4 : info.mtuV6,
++            .preferred = info.preferred,
++            .persistent = info.persistent,
++    };
++}
++
++// Avium beyond1q: vec conversion for the 1.4-only radio HAL path.
++
++hidl_vec<V1_4::DataProfileInfo> toHidlV1_4vec(
++        const std::vector<aidl::DataProfileInfo>& profiles) {
++    hidl_vec<V1_4::DataProfileInfo> out(profiles.size());
++    for (size_t i = 0; i < profiles.size(); i++) {
++        out[i] = toHidlV1_4(profiles[i]);
++    }
++    return out;
++}
++
+ V1_5::LinkAddress toHidl(const aidl::LinkAddress& addr) {
+     return {
+             .address = addr.address,
+diff --git a/radio/aidl/compat/libradiocompat/data/structs.h b/radio/aidl/compat/libradiocompat/data/structs.h
+index 60fad57f51..3b3006921a 100644
+--- a/radio/aidl/compat/libradiocompat/data/structs.h
++++ b/radio/aidl/compat/libradiocompat/data/structs.h
+@@ -19,6 +19,7 @@
+ #include <aidl/android/hardware/radio/data/KeepaliveRequest.h>
+ #include <aidl/android/hardware/radio/data/KeepaliveStatus.h>
+ #include <aidl/android/hardware/radio/data/LinkAddress.h>
++#include <hidl/HidlSupport.h>
+ #include <aidl/android/hardware/radio/data/OsAppId.h>
+ #include <aidl/android/hardware/radio/data/PcoDataInfo.h>
+ #include <aidl/android/hardware/radio/data/RouteSelectionDescriptor.h>
+@@ -29,9 +30,29 @@
+ #include <aidl/android/hardware/radio/data/UrspRule.h>
+ #include <android/hardware/radio/1.6/types.h>
+ 
++
+ namespace android::hardware::radio::compat {
++// Avium beyond1q: AIDL LinkAddress -> 1.4-style plain address string.
++inline hidl_vec<hidl_string> toHidlStrings(
++        const std::vector<::aidl::android::hardware::radio::data::LinkAddress>& addrs) {
++    hidl_vec<hidl_string> out(addrs.size());
++    for (size_t i = 0; i < addrs.size(); i++) {
++        out[i] = hidl_string(addrs[i].address);
++    }
++    return out;
++}
++inline hidl_vec<hidl_string> toHidlStrings(const std::vector<std::string>& strs) {
++    hidl_vec<hidl_string> out(strs.size());
++    for (size_t i = 0; i < strs.size(); i++) {
++        out[i] = hidl_string(strs[i]);
++    }
++    return out;
++}
+ 
+ V1_5::DataProfileInfo toHidl(const ::aidl::android::hardware::radio::data::DataProfileInfo& info);
++// Avium beyond1q: V1_4 overload for a 1.4-only radio HAL (Samsung rild).
++V1_4::DataProfileInfo toHidlV1_4(const ::aidl::android::hardware::radio::data::DataProfileInfo& info);
++hidl_vec<V1_4::DataProfileInfo> toHidlV1_4vec(const std::vector<::aidl::android::hardware::radio::data::DataProfileInfo>& profiles);
+ 
+ V1_5::LinkAddress toHidl(const ::aidl::android::hardware::radio::data::LinkAddress& addr);
+ 
+diff --git a/radio/aidl/compat/libradiocompat/include/libradiocompat/CallbackManager.h b/radio/aidl/compat/libradiocompat/include/libradiocompat/CallbackManager.h
+index 34ab5d713d..e9423cc43c 100644
+--- a/radio/aidl/compat/libradiocompat/include/libradiocompat/CallbackManager.h
++++ b/radio/aidl/compat/libradiocompat/include/libradiocompat/CallbackManager.h
+@@ -27,7 +27,7 @@
+ namespace android::hardware::radio::compat {
+ 
+ class CallbackManager {
+-    sp<V1_5::IRadio> mHidlHal;
++    sp<V1_4::IRadio> mHidlHal;
+     sp<RadioResponse> mRadioResponse;
+     sp<RadioIndication> mRadioIndication;
+ 
+@@ -42,7 +42,7 @@ class CallbackManager {
+     void delayedSetterThread();
+ 
+   public:
+-    CallbackManager(std::shared_ptr<DriverContext> context, sp<V1_5::IRadio> hidlHal);
++    CallbackManager(std::shared_ptr<DriverContext> context, sp<V1_4::IRadio> hidlHal);
+     ~CallbackManager();
+ 
+     RadioResponse& response() const;
+diff --git a/radio/aidl/compat/libradiocompat/include/libradiocompat/RadioCompatBase.h b/radio/aidl/compat/libradiocompat/include/libradiocompat/RadioCompatBase.h
+index eb22fff25d..68621d70a1 100644
+--- a/radio/aidl/compat/libradiocompat/include/libradiocompat/RadioCompatBase.h
++++ b/radio/aidl/compat/libradiocompat/include/libradiocompat/RadioCompatBase.h
+@@ -26,13 +26,13 @@ class RadioCompatBase {
+   protected:
+     std::shared_ptr<DriverContext> mContext;
+ 
+-    sp<V1_5::IRadio> mHal1_5;
++    sp<V1_4::IRadio> mHal1_5;
+     sp<V1_6::IRadio> mHal1_6;
+ 
+     std::shared_ptr<CallbackManager> mCallbackManager;
+ 
+   public:
+-    RadioCompatBase(std::shared_ptr<DriverContext> context, sp<V1_5::IRadio> hidlHal,
++    RadioCompatBase(std::shared_ptr<DriverContext> context, sp<V1_4::IRadio> hidlHal,
+                     std::shared_ptr<CallbackManager> cbMgr);
+ };
+ 
+diff --git a/radio/aidl/compat/libradiocompat/messaging/RadioMessaging.cpp b/radio/aidl/compat/libradiocompat/messaging/RadioMessaging.cpp
+index 56d49f1bb9..e084719314 100644
+--- a/radio/aidl/compat/libradiocompat/messaging/RadioMessaging.cpp
++++ b/radio/aidl/compat/libradiocompat/messaging/RadioMessaging.cpp
+@@ -18,6 +18,7 @@
+ 
+ #include "debug.h"
+ #include "structs.h"
++#include "commonStructs.h"
+ 
+ #include "collections.h"
+ 
+@@ -111,7 +112,7 @@ ScopedAStatus RadioMessaging::sendCdmaSmsExpectMore(int32_t serial, const aidl::
+     if (mHal1_6) {
+         mHal1_6->sendCdmaSmsExpectMore_1_6(serial, toHidl(m));
+     } else {
+-        mHal1_5->sendCdmaSmsExpectMore(serial, toHidl(m));
++        respond()->sendCdmaSmsExpectMoreResponse(notSupported(serial), {});
+     }
+     return ok();
+ }
+diff --git a/radio/aidl/compat/libradiocompat/modem/RadioModem.cpp b/radio/aidl/compat/libradiocompat/modem/RadioModem.cpp
+index 439e37ede1..a427d30f95 100644
+--- a/radio/aidl/compat/libradiocompat/modem/RadioModem.cpp
++++ b/radio/aidl/compat/libradiocompat/modem/RadioModem.cpp
+@@ -134,7 +134,7 @@ ScopedAStatus RadioModem::setRadioPower(int32_t serial, bool powerOn, bool forEm
+     if (mHal1_6) {
+         mHal1_6->setRadioPower_1_6(serial, powerOn, forEmergencyCall, preferredForEmergencyCall);
+     } else {
+-        mHal1_5->setRadioPower_1_5(serial, powerOn, forEmergencyCall, preferredForEmergencyCall);
++        mHal1_5->setRadioPower(serial, powerOn);
+     }
+     return ok();
+ }
+diff --git a/radio/aidl/compat/libradiocompat/network/RadioNetwork.cpp b/radio/aidl/compat/libradiocompat/network/RadioNetwork.cpp
+index 392b095552..afbcfe5100 100644
+--- a/radio/aidl/compat/libradiocompat/network/RadioNetwork.cpp
++++ b/radio/aidl/compat/libradiocompat/network/RadioNetwork.cpp
+@@ -30,6 +30,11 @@ namespace android::hardware::radio::compat {
+ using ::aidl::android::hardware::radio::AccessNetwork;
+ using ::ndk::ScopedAStatus;
+ namespace aidl = ::aidl::android::hardware::radio::network;
++// Avium beyond1q: the HIDL 1.5 types used when forwarding
++// setSignalStrengthReportingCriteria / startNetworkScan instead of replying
++// notSupported. structs.h already pulls in <android/hardware/radio/1.6/types.h>,
++// which is where this namespace comes from.
++namespace V1_5 = ::android::hardware::radio::V1_5;
+ constexpr auto ok = &ScopedAStatus::ok;
+ 
+ std::shared_ptr<aidl::IRadioNetworkResponse> RadioNetwork::respond() {
+@@ -58,9 +63,8 @@ ScopedAStatus RadioNetwork::getAvailableNetworks(int32_t serial) {
+     return ok();
+ }
+ 
+-ScopedAStatus RadioNetwork::getBarringInfo(int32_t serial) {
+-    LOG_CALL << serial;
+-    mHal1_5->getBarringInfo(serial);
++ScopedAStatus RadioNetwork::getBarringInfo(int32_t serial) {LOG_CALL << serial;
++    respond()->getBarringInfoResponse(notSupported(serial), {}, {});
+     return ok();
+ }
+ 
+@@ -85,7 +89,11 @@ ScopedAStatus RadioNetwork::getDataRegistrationState(int32_t serial) {
+     if (mHal1_6) {
+         mHal1_6->getDataRegistrationState_1_6(serial);
+     } else {
+-        mHal1_5->getDataRegistrationState_1_5(serial);
++        // Avium beyond1q: mHal1_5 holds Samsung's IRadio 1.4, which only has
++        // the inherited V1_2 query (no _1_4 request exists). Samsung's rild
++        // answers even this V1_2 request through the V1_4 callback, which is
++        // converted in getDataRegistrationStateResponse_1_4.
++        mHal1_5->getDataRegistrationState(serial);
+     }
+     return ok();
+ }
+@@ -139,7 +147,8 @@ ScopedAStatus RadioNetwork::getVoiceRegistrationState(int32_t serial) {
+     if (mHal1_6) {
+         mHal1_6->getVoiceRegistrationState_1_6(serial);
+     } else {
+-        mHal1_5->getVoiceRegistrationState_1_5(serial);
++        // Avium beyond1q: same V1_2 fallback as getDataRegistrationState.
++        mHal1_5->getVoiceRegistrationState(serial);
+     }
+     return ok();
+ }
+@@ -198,7 +207,7 @@ ScopedAStatus RadioNetwork::setCellInfoListRate(int32_t serial, int32_t rate) {
+ 
+ ScopedAStatus RadioNetwork::setIndicationFilter(int32_t serial, int32_t indFilter) {
+     LOG_CALL << serial;
+-    mHal1_5->setIndicationFilter_1_5(serial, toHidlBitfield<V1_5::IndicationFilter>(indFilter));
++    mHal1_5->setIndicationFilter_1_2(serial, indFilter);
+     return ok();
+ }
+ 
+@@ -207,9 +216,9 @@ ScopedAStatus RadioNetwork::setLinkCapacityReportingCriteria(  //
+         const std::vector<int32_t>& thrDownlinkKbps, const std::vector<int32_t>& thrUplinkKbps,
+         AccessNetwork accessNetwork) {
+     LOG_CALL << serial;
+-    mHal1_5->setLinkCapacityReportingCriteria_1_5(  //
++    mHal1_5->setLinkCapacityReportingCriteria(  //
+             serial, hysteresisMs, hysteresisDlKbps, hysteresisUlKbps, thrDownlinkKbps,
+-            thrUplinkKbps, V1_5::AccessNetwork(accessNetwork));
++            thrUplinkKbps, V1_2::AccessNetwork(accessNetwork));
+     return ok();
+ }
+ 
+@@ -228,7 +237,8 @@ ScopedAStatus RadioNetwork::setNetworkSelectionModeAutomatic(int32_t serial) {
+ ScopedAStatus RadioNetwork::setNetworkSelectionModeManual(  //
+         int32_t serial, const std::string& opNumeric, AccessNetwork ran) {
+     LOG_CALL << serial;
+-    mHal1_5->setNetworkSelectionModeManual_1_5(serial, opNumeric, toRadioAccessNetworks(ran));
++    (void)ran;
++    mHal1_5->setNetworkSelectionModeManual(serial, opNumeric);
+     return ok();
+ }
+ 
+@@ -266,8 +276,30 @@ ScopedAStatus RadioNetwork::setSignalStrengthReportingCriteria(
+         respond()->setSignalStrengthReportingCriteriaResponse(notSupported(serial));
+         return ok();
+     }
+-    mHal1_5->setSignalStrengthReportingCriteria_1_5(serial, toHidl(infos[0]),
+-                                                    V1_5::AccessNetwork(infos[0].ran));
++    // Avium beyond1q: forward to the HIDL HAL when a 1.5-capable proxy exists.
++    // IRadio@1.5 implements this call, and replying notSupported made the
++    // framework give up on signal strength reporting entirely:
++    //   RILJ: SET_SIGNAL_STRENGTH_REPORTING_CRITERIA error 6
++    //   CommandException: REQUEST_NOT_SUPPORTED
++    //
++    // mHal1_6, not mHal1_5: despite the name, mHal1_5 is a V1_4::IRadio and
++    // does not declare the _1_5 methods. The _1_5 overload also takes an
++    // AccessNetwork argument.
++    //
++    // The null check is mandatory. RIL.java binds android.hardware.radio.V1_4
++    // first (to keep the wire format and mHalVersion in agreement - see the
++    // comment there), and in that case V1_6::IRadio::castFrom() yields null.
++    // Calling through it dereferences address 0 and the compat service dies:
++    //   SEGV_MAPERR ... RadioNetwork::setSignalStrengthReportingCriteria+396
++    // That takes down every IRadioNetwork/IRadioSim/... service with it, and
++    // the framework then gets RADIO_NOT_AVAILABLE on every single call.
++    if (mHal1_6) {
++        mHal1_6->setSignalStrengthReportingCriteria_1_5(
++                serial, toHidl(infos[0]),
++                static_cast<V1_5::AccessNetwork>(static_cast<int>(infos[0].ran)));
++        return ok();
++    }
++    respond()->setSignalStrengthReportingCriteriaResponse(notSupported(serial));
+     return ok();
+ }
+ 
+@@ -279,14 +311,30 @@ ScopedAStatus RadioNetwork::setSuppServiceNotifications(int32_t serial, bool ena
+ 
+ ScopedAStatus RadioNetwork::setSystemSelectionChannels(  //
+         int32_t serial, bool specifyCh, const std::vector<aidl::RadioAccessSpecifier>& specifiers) {
+-    LOG_CALL << serial;
+-    mHal1_5->setSystemSelectionChannels_1_5(serial, specifyCh, toHidl(specifiers));
++    LOG_CALL << serial << ' ' << specifyCh << ' ' << specifiers.size();
++    (void)specifyCh;
++    (void)specifiers;
++    respond()->setSystemSelectionChannelsResponse(notSupported(serial));
+     return ok();
+ }
+ 
+ ScopedAStatus RadioNetwork::startNetworkScan(int32_t serial, const aidl::NetworkScanRequest& req) {
+-    LOG_CALL << serial;
+-    mHal1_5->startNetworkScan_1_5(serial, toHidl(req));
++    LOG_CALL << serial << ' ' << req.type;
++    // Avium beyond1q: forward to the HIDL HAL when a 1.5-capable proxy exists.
++    // IRadio@1.5 implements startNetworkScan_1_5; replying notSupported meant a
++    // manual "search networks" from Settings always failed with
++    // REQUEST_NOT_SUPPORTED, which also removed the only way to prove whether
++    // the RF front end can see any cell at all. mHal1_6 carries the _1_5
++    // overloads (mHal1_5 is V1_4).
++    //
++    // Null check mandatory - see the note in setSignalStrengthReportingCriteria:
++    // RIL.java binds V1_4 first, castFrom to V1_6 returns null, and calling
++    // through it kills the compat service.
++    if (mHal1_6) {
++        mHal1_6->startNetworkScan_1_5(serial, toHidl(req));
++        return ok();
++    }
++    respond()->startNetworkScanResponse(notSupported(serial));
+     return ok();
+ }
+ 
+diff --git a/radio/aidl/compat/libradiocompat/network/RadioResponse-network.cpp b/radio/aidl/compat/libradiocompat/network/RadioResponse-network.cpp
+index 428070c8b2..44df5b82fe 100644
+--- a/radio/aidl/compat/libradiocompat/network/RadioResponse-network.cpp
++++ b/radio/aidl/compat/libradiocompat/network/RadioResponse-network.cpp
+@@ -106,9 +106,13 @@ Return<void> RadioResponse::getCellInfoListResponse_1_2(const V1_0::RadioRespons
+ }
+ 
+ Return<void> RadioResponse::getCellInfoListResponse_1_4(const V1_0::RadioResponseInfo& info,
+-                                                        const hidl_vec<V1_4::CellInfo>&) {
++                                                        const hidl_vec<V1_4::CellInfo>& cellInfo) {
+     LOG_CALL << info.serial;
+-    LOG(ERROR) << "IRadio HAL 1.4 not supported";
++    // Avium beyond1q: Samsung rild answers the getCellInfoList request with
++    // this V1_4 callback. Forwarding it (instead of the former empty stub) is
++    // what lets RILJ finish the request; leaving it unanswered made RILJ pile
++    // up thousands of pending cell-info queries and starve network polling.
++    networkCb()->getCellInfoListResponse(toAidl(info), toAidl(cellInfo));
+     return {};
+ }
+ 
+@@ -134,16 +138,20 @@ Return<void> RadioResponse::getDataRegistrationStateResponse(const V1_0::RadioRe
+ }
+ 
+ Return<void> RadioResponse::getDataRegistrationStateResponse_1_2(
+-        const V1_0::RadioResponseInfo& info, const V1_2::DataRegStateResult&) {
++        const V1_0::RadioResponseInfo& info, const V1_2::DataRegStateResult& dataRegResponse) {
+     LOG_CALL << info.serial;
+-    LOG(ERROR) << "IRadio HAL 1.2 not supported";
++    // Avium beyond1q: Samsung rild answers the V1_2 fallback query issued in
++    // RadioNetwork::getDataRegistrationState().
++    networkCb()->getDataRegistrationStateResponse(toAidl(info), toAidl(dataRegResponse));
+     return {};
+ }
+ 
+ Return<void> RadioResponse::getDataRegistrationStateResponse_1_4(
+-        const V1_0::RadioResponseInfo& info, const V1_4::DataRegStateResult&) {
++        const V1_0::RadioResponseInfo& info, const V1_4::DataRegStateResult& dataRegResponse) {
+     LOG_CALL << info.serial;
+-    LOG(ERROR) << "IRadio HAL 1.4 not supported";
++    // Avium beyond1q: Samsung's rild answers the data registration query via
++    // this callback regardless of whether the V1_2 or V1_4 method was used.
++    networkCb()->getDataRegistrationStateResponse(toAidl(info), toAidl(dataRegResponse));
+     return {};
+ }
+ 
+@@ -242,9 +250,11 @@ Return<void> RadioResponse::getVoiceRegistrationStateResponse(const V1_0::RadioR
+ }
+ 
+ Return<void> RadioResponse::getVoiceRegistrationStateResponse_1_2(
+-        const V1_0::RadioResponseInfo& info, const V1_2::VoiceRegStateResult&) {
++        const V1_0::RadioResponseInfo& info, const V1_2::VoiceRegStateResult& voiceRegResponse) {
+     LOG_CALL << info.serial;
+-    LOG(ERROR) << "IRadio HAL 1.2 not supported";
++    // Avium beyond1q: Samsung rild answers the V1_2 fallback query issued in
++    // RadioNetwork::getVoiceRegistrationState().
++    networkCb()->getVoiceRegistrationStateResponse(toAidl(info), toAidl(voiceRegResponse));
+     return {};
+ }
+ 
+diff --git a/radio/aidl/compat/libradiocompat/network/structs.cpp b/radio/aidl/compat/libradiocompat/network/structs.cpp
+index 30d4f6dd72..f3493fa24a 100644
+--- a/radio/aidl/compat/libradiocompat/network/structs.cpp
++++ b/radio/aidl/compat/libradiocompat/network/structs.cpp
+@@ -480,6 +480,61 @@ aidl::CellInfo toAidl(const V1_6::CellInfo& info) {
+     };
+ }
+ 
++// Avium beyond1q: Samsung rild only implements IRadio up to 1.4 and answers
++// getCellInfoList through getCellInfoListResponse_1_4. V1_4::CellInfo carries
++// a safe_union whose GSM/CDMA/WCDMA/TDSCDMA arms are still the V1_2 types,
++// while the LTE arm wraps a V1_2 CellInfoLte plus the extra CellConfigLte.
++// The V1_2 arms are re-wrapped into the V1_5 shapes so the existing V1_5
++// converters can be reused; the LTE cellConfig has no AIDL counterpart in the
++// struct the framework consumes here, so it is intentionally dropped.
++static aidl::CellInfoRatSpecificInfo toAidl(const V1_4::CellInfo::Info& ci) {
++    using Discr = V1_4::CellInfo::Info::hidl_discriminator;
++    const auto discr = ci.getDiscriminator();
++
++    if (discr == Discr::gsm) {
++        V1_5::CellInfoGsm g;
++        g.cellIdentityGsm.base = ci.gsm().cellIdentityGsm;
++        g.signalStrengthGsm = ci.gsm().signalStrengthGsm;
++        return toAidl(g);
++    }
++    if (discr == Discr::cdma) return toAidl(ci.cdma());
++    if (discr == Discr::wcdma) {
++        V1_5::CellInfoWcdma w;
++        w.cellIdentityWcdma.base = ci.wcdma().cellIdentityWcdma;
++        w.signalStrengthWcdma = ci.wcdma().signalStrengthWcdma;
++        return toAidl(w);
++    }
++    if (discr == Discr::tdscdma) {
++        V1_5::CellInfoTdscdma t;
++        t.cellIdentityTdscdma.base = ci.tdscdma().cellIdentityTdscdma;
++        t.signalStrengthTdscdma = ci.tdscdma().signalStrengthTdscdma;
++        return toAidl(t);
++    }
++    if (discr == Discr::lte) {
++        V1_5::CellInfoLte l;
++        l.cellIdentityLte.base = ci.lte().base.cellIdentityLte;
++        l.signalStrengthLte = ci.lte().base.signalStrengthLte;
++        return toAidl(l);
++    }
++    if (discr == Discr::nr) {
++        V1_5::CellInfoNr n;
++        n.cellIdentityNr.base = ci.nr().cellidentity;
++        n.signalStrengthNr = ci.nr().signalStrength;
++        return toAidl(n);
++    }
++
++    (void)discr;
++    return {};
++}
++
++aidl::CellInfo toAidl(const V1_4::CellInfo& info) {
++    return {
++            .registered = info.isRegistered,
++            .connectionStatus = aidl::CellConnectionStatus(info.connectionStatus),
++            .ratSpecificInfo = toAidl(info.info),
++    };
++}
++
+ aidl::LinkCapacityEstimate toAidl(const V1_2::LinkCapacityEstimate& e) {
+     return {
+             .downlinkCapacityKbps = static_cast<int32_t>(e.downlinkCapacityKbps),
+@@ -667,6 +722,111 @@ toAidl(const V1_6::RegStateResult::AccessTechnologySpecificInfo& info) {
+     return {};
+ }
+ 
++// Avium beyond1q: Samsung's rild implements IRadio only up to 1.4, so the
++// registration-state queries fall back to the V1_2 methods and the responses
++// arrive as V1_2 structs. Fields newer than 1.2 do not exist there; the LTE
++// path below synthesizes the VoLTE capability bits that the V1_5+ structs
++// carry (the vendor IMS stack reports the network as vops-capable), so the
++// framework does not mark every LTE cell as VoLTE-incapable.
++static aidl::CellIdentity toAidl(const V1_2::CellIdentity& ci) {
++    V1_5::CellIdentity v15;
++    switch (ci.cellInfoType) {
++        case V1_0::CellInfoType::GSM:
++            if (ci.cellIdentityGsm.size() == 1) {
++                V1_5::CellIdentityGsm g;
++                g.base = ci.cellIdentityGsm[0];
++                v15.gsm(g);
++            }
++            break;
++        case V1_0::CellInfoType::WCDMA:
++            if (ci.cellIdentityWcdma.size() == 1) {
++                V1_5::CellIdentityWcdma w;
++                w.base = ci.cellIdentityWcdma[0];
++                v15.wcdma(w);
++            }
++            break;
++        case V1_0::CellInfoType::CDMA:
++            if (ci.cellIdentityCdma.size() == 1) {
++                v15.cdma(ci.cellIdentityCdma[0]);
++            }
++            break;
++        case V1_0::CellInfoType::LTE:
++            if (ci.cellIdentityLte.size() == 1) {
++                V1_5::CellIdentityLte l;
++                l.base = ci.cellIdentityLte[0];
++                v15.lte(l);
++            }
++            break;
++        case V1_0::CellInfoType::TD_SCDMA:
++            if (ci.cellIdentityTdscdma.size() == 1) {
++                V1_5::CellIdentityTdscdma t;
++                t.base = ci.cellIdentityTdscdma[0];
++                v15.tdscdma(t);
++            }
++            break;
++        default:
++            break;
++    }
++    return toAidl(v15);
++}
++
++static aidl::AccessTechnologySpecificInfo  //
++synthesizeLteVopsInfo(int32_t rat) {
++    if (RadioTechnology(rat) != RadioTechnology::LTE) return {};
++    using T = aidl::AccessTechnologySpecificInfo;
++    return T::make<T::Tag::eutranInfo>(aidl::EutranRegistrationInfo{
++            .lteVopsInfo = {.isVopsSupported = true, .isEmcBearerSupported = false},
++            .nrIndicators = {.isEndcAvailable = false, .isDcNrRestricted = false,
++                             .isNrAvailable = false},
++    });
++}
++
++aidl::RegStateResult toAidl(const V1_2::DataRegStateResult& res) {
++    return {
++            .regState = aidl::RegState(res.regState),
++            .rat = RadioTechnology(res.rat),
++            .reasonForDenial = aidl::RegistrationFailCause(res.reasonDataDenied),
++            .cellIdentity = toAidl(res.cellIdentity),
++            .registeredPlmn = "",
++            .accessTechnologySpecificInfo = synthesizeLteVopsInfo(res.rat),
++    };
++}
++
++aidl::RegStateResult toAidl(const V1_2::VoiceRegStateResult& res) {
++    return {
++            .regState = aidl::RegState(res.regState),
++            .rat = RadioTechnology(res.rat),
++            .reasonForDenial = aidl::RegistrationFailCause(res.reasonForDenial),
++            .cellIdentity = toAidl(res.cellIdentity),
++            .registeredPlmn = "",
++            .accessTechnologySpecificInfo = {},
++    };
++}
++
++// Samsung's rild answers the data query through the V1_4 callback (the
++// response carries V1_4::DataRegStateResult = V1_2 base + VopsInfo union),
++// even though the request came in as V1_2 — so this conversion is required
++// for the data registration state to ever reach the framework.
++aidl::RegStateResult toAidl(const V1_4::DataRegStateResult& res) {
++    auto ret = toAidl(res.base);
++    using Discr = V1_4::DataRegStateResult::VopsInfo::hidl_discriminator;
++    if (res.vopsInfo.getDiscriminator() == Discr::lteVopsInfo) {
++        ret.accessTechnologySpecificInfo = aidl::AccessTechnologySpecificInfo::make<
++                aidl::AccessTechnologySpecificInfo::Tag::eutranInfo>(
++                aidl::EutranRegistrationInfo{
++                        .lteVopsInfo = toAidl(res.vopsInfo.lteVopsInfo()),
++                        .nrIndicators = {.isEndcAvailable = false,
++                                         .isDcNrRestricted = false,
++                                         .isNrAvailable = false},
++                });
++    } else if (RadioTechnology(res.base.rat) == RadioTechnology::LTE) {
++        // LTE without vops info: synthesize so the framework does not mark
++        // the cell VoLTE-incapable (the vendor IMS stack is vops-capable).
++        ret.accessTechnologySpecificInfo = synthesizeLteVopsInfo(res.base.rat);
++    }
++    return ret;
++}
++
+ aidl::RegStateResult toAidl(const V1_5::RegStateResult& res) {
+     return {
+             .regState = aidl::RegState(res.regState),
+diff --git a/radio/aidl/compat/libradiocompat/network/structs.h b/radio/aidl/compat/libradiocompat/network/structs.h
+index 6a9a2199c4..7f952f314d 100644
+--- a/radio/aidl/compat/libradiocompat/network/structs.h
++++ b/radio/aidl/compat/libradiocompat/network/structs.h
+@@ -66,6 +66,12 @@ toAidl(const V1_5::ClosedSubscriberGroupInfo& info);
+ 
+ ::aidl::android::hardware::radio::network::CellInfo toAidl(const V1_5::CellInfo& info);
+ ::aidl::android::hardware::radio::network::CellInfo toAidl(const V1_6::CellInfo& info);
++// Avium beyond1q: Samsung rild only implements IRadio up to 1.4 and answers
++// getCellInfoList through the V1_4 callback. Without this overload that
++// response stayed an empty stub, so RILJ never completed the request and its
++// queue grew without bound (observed: 2000+ pending GET_CELL_INFO_LIST,
++// which starved the poll-state machine and left the device out of service).
++::aidl::android::hardware::radio::network::CellInfo toAidl(const V1_4::CellInfo& info);
+ 
+ ::aidl::android::hardware::radio::network::LinkCapacityEstimate  //
+ toAidl(const V1_2::LinkCapacityEstimate& lce);
+@@ -93,6 +99,17 @@ toAidl(const V1_0::SuppSvcNotification& svc);
+ ::aidl::android::hardware::radio::network::RegStateResult toAidl(const V1_5::RegStateResult& res);
+ ::aidl::android::hardware::radio::network::RegStateResult toAidl(const V1_6::RegStateResult& res);
+ 
++// Avium beyond1q: Samsung's rild implements IRadio only up to 1.4, so
++// getDataRegistrationState()/getVoiceRegistrationState() fall back to the
++// V1_2 methods and the responses arrive as V1_2 structs. (For data queries
++// Samsung's rild answers through the V1_4 callback, so V1_4 is covered too.)
++::aidl::android::hardware::radio::network::RegStateResult  //
++toAidl(const V1_2::DataRegStateResult& res);
++::aidl::android::hardware::radio::network::RegStateResult  //
++toAidl(const V1_2::VoiceRegStateResult& res);
++::aidl::android::hardware::radio::network::RegStateResult  //
++toAidl(const V1_4::DataRegStateResult& res);
++
+ ::aidl::android::hardware::radio::network::LceDataInfo toAidl(const V1_0::LceDataInfo& info);
+ 
+ }  // namespace android::hardware::radio::compat
+diff --git a/radio/aidl/compat/libradiocompat/sim/RadioSim.cpp b/radio/aidl/compat/libradiocompat/sim/RadioSim.cpp
+index 8b460491bd..3989fb65c9 100644
+--- a/radio/aidl/compat/libradiocompat/sim/RadioSim.cpp
++++ b/radio/aidl/compat/libradiocompat/sim/RadioSim.cpp
+@@ -34,9 +34,8 @@ std::shared_ptr<aidl::IRadioSimResponse> RadioSim::respond() {
+     return mCallbackManager->response().simCb();
+ }
+ 
+-ScopedAStatus RadioSim::areUiccApplicationsEnabled(int32_t serial) {
+-    LOG_CALL << serial;
+-    mHal1_5->areUiccApplicationsEnabled(serial);
++ScopedAStatus RadioSim::areUiccApplicationsEnabled(int32_t serial) {LOG_CALL << serial;
++    respond()->areUiccApplicationsEnabledResponse(notSupported(serial), false);
+     return ok();
+ }
+ 
+@@ -55,8 +54,9 @@ ScopedAStatus RadioSim::changeIccPinForApp(int32_t serial, const std::string& ol
+ }
+ 
+ ScopedAStatus RadioSim::enableUiccApplications(int32_t serial, bool enable) {
+-    LOG_CALL << serial;
+-    mHal1_5->enableUiccApplications(serial, enable);
++    LOG_CALL << serial << ' ' << enable;
++    (void)enable;
++    respond()->enableUiccApplicationsResponse(notSupported(serial));
+     return ok();
+ }
+ 
+@@ -281,8 +281,10 @@ ScopedAStatus RadioSim::supplyIccPukForApp(int32_t serial, const std::string& pu
+ 
+ ScopedAStatus RadioSim::supplySimDepersonalization(int32_t serial, aidl::PersoSubstate pss,
+                                                    const std::string& controlKey) {
+-    LOG_CALL << serial;
+-    mHal1_5->supplySimDepersonalization(serial, V1_5::PersoSubstate(pss), controlKey);
++    LOG_CALL << serial << ' ' << static_cast<int32_t>(pss) << ' ' << controlKey;
++    (void)pss;
++    (void)controlKey;
++    respond()->supplySimDepersonalizationResponse(notSupported(serial), {}, {});
+     return ok();
+ }
+ 
+diff --git a/radio/aidl/compat/service/Android.bp b/radio/aidl/compat/service/Android.bp
+index 3d46d4f89a..378ebe0be3 100644
+--- a/radio/aidl/compat/service/Android.bp
++++ b/radio/aidl/compat/service/Android.bp
+@@ -57,3 +57,49 @@ cc_binary {
+         "service.cpp",
+     ],
+ }
++
++// Avium beyond1q: system-domain radio compat service. Republishes Samsung
++// rild's HIDL IRadio as the AIDL IRadio{Data,Messaging,Modem,Network,Sim,Voice}
++// the A16 telephony stack requires; registers on /dev/binder (no vendor-AIDL
++// bridge on this bp4a base).
++cc_binary {
++    name: "android.hardware.radio-service.compat.avium",
++    defaults: ["android.hardware.radio-library.aidl_deps"],
++    relative_install_path: "hw",
++    init_rc: ["radio-compat-avium.rc"],
++    // No vintf_fragments/vintf_fragment_modules here: the device manifest
++    // (manifest_stock_backfill.xml) already declares every AIDL radio
++    // interface the bridge republishes, and shipping a second fragment that
++    // claims the same FqInstance aborts the whole VINTF merge with
++    //   NULL VINTF MANIFEST!: device
++    // which took the whole system down (surfaceflinger EGL_BAD_ALLOC loop,
++    // adsp "Transport endpoint is not connected", stuck on the boot logo).
++    cflags: [
++        "-Wall",
++        "-Wextra",
++        "-DANDROID_UTILS_REF_BASE_DISABLE_IMPLICIT_CONSTRUCTION",
++    ],
++    shared_libs: [
++        "android.hardware.radio-library.compat.avium",
++        "android.hardware.radio.config@1.0",
++        "android.hardware.radio.config@1.1",
++        "android.hardware.radio.config@1.2",
++        "android.hardware.radio.config@1.3",
++        "android.hardware.radio@1.0",
++        "android.hardware.radio@1.1",
++        "android.hardware.radio@1.2",
++        "android.hardware.radio@1.3",
++        "android.hardware.radio@1.4",
++        "android.hardware.radio@1.5",
++        "android.hardware.radio@1.6",
++        "libbase",
++        "libbinder_ndk",
++        "libhidlbase",
++        "liblog",
++        "libutils",
++    ],
++    srcs: [
++        "service.cpp",
++        "hidl-utils.cpp",
++    ],
++}
+diff --git a/radio/aidl/compat/service/service.cpp b/radio/aidl/compat/service/service.cpp
+index 8af05deb08..590bf86bfb 100644
+--- a/radio/aidl/compat/service/service.cpp
++++ b/radio/aidl/compat/service/service.cpp
+@@ -35,7 +35,7 @@ using namespace std::string_literals;
+ static std::vector<std::shared_ptr<ndk::ICInterface>> gPublishedHals;
+ 
+ template <typename T>
+-static void publishRadioHal(std::shared_ptr<compat::DriverContext> ctx, sp<V1_5::IRadio> hidlHal,
++static void publishRadioHal(std::shared_ptr<compat::DriverContext> ctx, sp<V1_4::IRadio> hidlHal,
+                             std::shared_ptr<compat::CallbackManager> cm, const std::string& slot) {
+     const auto instance = T::descriptor + "/"s + slot;
+     if (!AServiceManager_isDeclared(instance.c_str())) {
+@@ -51,8 +51,17 @@ static void publishRadioHal(std::shared_ptr<compat::DriverContext> ctx, sp<V1_5:
+ }
+ 
+ static void publishRadio(std::string slot) {
+-    auto radioHidl = V1_5::IRadio::getService(slot);
+-    CHECK(radioHidl) << "HIDL IRadio not present in VINTF";
++    // Avium beyond1q: Samsung's rild registers IRadio only up to 1.4, while
++    // libradiocompat internally requires a V1_5 handle. castFrom() does a
++    // backwards-compatible interface walk, so take the highest the HAL
++    // declares (1.0..1.4) and cast it up to the 1.5 type.
++    // Never CHECK() here: a missing HIDL HAL must not abort the process,
++    // otherwise init counts 4 exits and forces download mode.
++    sp<V1_4::IRadio> radioHidl = V1_4::IRadio::getService(slot);
++    if (radioHidl == nullptr) {
++        LOG(ERROR) << "HIDL IRadio/" << slot << " not present; skipping";
++        return;
++    }
+ 
+     hidl_utils::linkDeathToDeath(radioHidl);
+ 
+@@ -68,16 +77,33 @@ static void publishRadio(std::string slot) {
+ }
+ 
+ static void publishRadioConfig() {
++    // Avium beyond1q: guard the same way publishRadioHal does. Without the
++    // isDeclared() check, AServiceManager_addService() returns
++    // EX_ILLEGAL_ARGUMENT (-3) whenever the AIDL HAL is missing from the
++    // device manifest, and CHECK_EQ aborts -> "exited 4 times before boot
++    // completed" -> init kills the boot into download mode.
++    const auto instance = compat::RadioConfig::descriptor + "/default"s;
++    if (!AServiceManager_isDeclared(instance.c_str())) {
++        LOG(ERROR) << instance << " is not declared in VINTF; skipping"
++                   << " (add it to the device manifest to enable telephony)";
++        return;
++    }
+     auto hidlHal = config::V1_1::IRadioConfig::getService();
+-    CHECK(hidlHal) << "HIDL IRadioConfig not present in VINTF";
++    if (hidlHal == nullptr) {
++        LOG(ERROR) << "HIDL IRadioConfig not present; skipping " << instance;
++        return;
++    }
+ 
+     hidl_utils::linkDeathToDeath(hidlHal);
+ 
+     auto aidlHal = ndk::SharedRefBase::make<compat::RadioConfig>(hidlHal);
+     gPublishedHals.push_back(aidlHal);
+-    const auto instance = compat::RadioConfig::descriptor + "/default"s;
+     const auto status = AServiceManager_addService(aidlHal->asBinder().get(), instance.c_str());
+-    CHECK_EQ(status, STATUS_OK);
++    if (status != STATUS_OK) {
++        LOG(ERROR) << "addService(" << instance << ") failed: " << status;
++        return;
++    }
++    LOG(INFO) << "Published " << instance;
+ }
+ 
+ static void main() {
+@@ -88,8 +114,13 @@ static void main() {
+ 
+     publishRadioConfig();
+ 
+-    const auto slots = hidl_utils::listManifestByInterface(V1_0::IRadio::descriptor);
+-    LOG(INFO) << "Found " << slots.size() << " slot(s)";
++    // Avium beyond1q: do NOT call hidl_utils::listManifestByInterface() here.
++    // That call blocks forever in binder_ioctl waiting for the hwservicemanager
++    // reply (the 1.2 manager's list path does not answer this caller). The
++    // device is dual-SIM and rild registers IRadio/slot1 + slot2 (verified via
++    // lshal), so publish the slots directly.
++    const std::vector<std::string> slots = {"slot1", "slot2"};
++    LOG(INFO) << "Publishing " << slots.size() << " slot(s)";
+     for (const auto& slot : slots) {
+         publishRadio(slot);
+     }
+diff --git a/security/keymint/aidl/default/Android.bp b/security/keymint/aidl/default/Android.bp
+index 10f6f5e58d..bc49e08f05 100644
+--- a/security/keymint/aidl/default/Android.bp
++++ b/security/keymint/aidl/default/Android.bp
+@@ -35,7 +35,13 @@ vintf_fragment {
+ cc_binary {
+     name: "android.hardware.security.keymint-service",
+     relative_install_path: "hw",
+-    init_rc: ["android.hardware.security.keymint-service.rc"],
++    // avium: keep the binary and its VINTF fragments (the manifest declaration
++    // IKeyMintDevice/ISecureClock/ISharedSecret/default is what servicemanager
++    // checks), but do NOT start this vendor service. The system-domain twin
++    // android.hardware.security.keymint-service.avium registers the same
++    // instances on /dev/binder; starting both makes servicemanager report
++    // "Multiple instances installed" and keystore2 aborts 4x -> InitFatalReboot.
++    // init_rc: ["android.hardware.security.keymint-service.rc"],
+     vendor: true,
+     cflags: [
+         "-Wall",
+@@ -70,6 +76,45 @@ cc_binary {
+         "android.hardware.security.secureclock-service.xml",
+     ],
+ }
++// Avium v132bs3: SYSTEM variant. Re-created after BK rollback lost the v132bi
++// surgery. Same structural gap as power/lights: keymint is declared in the
++// device VINTF manifest, LockSettingsService (system_server MAIN thread) does
++// waitForDeclaredService(IKeyMintDevice/ISharedSecret/ISecureClock) against
++// the SYSTEM servicemanager, and the vendor copy registers on vndSM where
++// this bp4a has no bridge. Without this the boot thread dies right after
++// lights. The three interfaces are registered by this one process.
++cc_binary {
++    name: "android.hardware.security.keymint-service.avium",
++    relative_install_path: "hw",
++    init_rc: ["android.hardware.security.keymint-service.avium.rc"],
++    cflags: [
++        "-Wall",
++        "-Wextra",
++    ],
++    defaults: [
++        "keymint_cpp_impl_hal_aidl_ndk_shared",
++    ],
++    shared_libs: [
++        "android.hardware.security.rkp-V3-ndk",
++        "android.hardware.security.sharedsecret-V1-ndk",
++        "android.hardware.security.secureclock-V1-ndk",
++        "libbase",
++        "libbinder_ndk",
++        "libcppbor",
++        "libcrypto",
++        "libkeymaster_portable",
++        "libkeymint",
++        "liblog",
++        "libpuresoftkeymasterdevice",
++        "libutils",
++    ],
++    srcs: [
++        "service.cpp",
++    ],
++    required: [
++        "android.hardware.hardware_keystore.xml",
++    ],
++}
+ 
+ // The following target has an insecure implementation of KeyMint where the
+ // trusted application (TA) code runs in-process alongside the HAL service
+diff --git a/sensors/2.0/multihal/android.hardware.sensors@2.0-service-multihal.rc b/sensors/2.0/multihal/android.hardware.sensors@2.0-service-multihal.rc
+index c87460437e..52d5f312bc 100644
+--- a/sensors/2.0/multihal/android.hardware.sensors@2.0-service-multihal.rc
++++ b/sensors/2.0/multihal/android.hardware.sensors@2.0-service-multihal.rc
+@@ -2,6 +2,5 @@ service vendor.sensors-hal-2-0-multihal /vendor/bin/hw/android.hardware.sensors@
+     class hal
+     user system
+     group system wakelock context_hub input
+-    task_profiles ServiceCapacityLow
+     capabilities BLOCK_SUSPEND
+     rlimit rtprio 10 10
+diff --git a/sensors/common/default/2.X/multihal/HalProxy.cpp b/sensors/common/default/2.X/multihal/HalProxy.cpp
+index c0581220bc..42c5e42a38 100644
+--- a/sensors/common/default/2.X/multihal/HalProxy.cpp
++++ b/sensors/common/default/2.X/multihal/HalProxy.cpp
+@@ -487,6 +487,15 @@ void HalProxy::initializeSubHalListFromConfigFile(const char* configFileName) {
+ }
+ 
+ void HalProxy::initializeSensorList() {
++    // beyond1q: Samsung's SSC HAL publishes the TMD4910 proximity sensor only
++    // as a vendor type (com.samsung.sensor.physical_proximity = 65592) and
++    // guards it with com.samsung.permission.SSENSOR. AOSP's in-call UI asks
++    // SensorManager for SENSOR_TYPE_PROXIMITY (8) to blank the screen during
++    // calls, so without a standard proximity sensor the screen stays on next
++    // to the ear. Re-publish that sensor under the standard type and drop the
++    // vendor permission so the framework can use it.
++    static constexpr int32_t kSamsungPhysicalProximity = 65592;
++    static constexpr int32_t kAndroidProximity = 8;  // SENSOR_TYPE_PROXIMITY
+     for (size_t subHalIndex = 0; subHalIndex < mSubHalList.size(); subHalIndex++) {
+         auto result = mSubHalList[subHalIndex]->getSensorsList([&](const auto& list) {
+             for (SensorInfo sensor : list) {
+@@ -494,6 +503,14 @@ void HalProxy::initializeSensorList() {
+                     ALOGE("SubHal sensorHandle's first byte was not 0");
+                 } else {
+                     ALOGV("Loaded sensor: %s", sensor.name.c_str());
++                    if (static_cast<int32_t>(sensor.type) == kSamsungPhysicalProximity) {
++                        ALOGI("HalProxy: re-publishing '%s' (type %d) as "
++                              "SENSOR_TYPE_PROXIMITY, clearing permission '%s'",
++                              sensor.name.c_str(), static_cast<int32_t>(sensor.type),
++                              sensor.requiredPermission.c_str());
++                        sensor.type = static_cast<decltype(sensor.type)>(kAndroidProximity);
++                        sensor.requiredPermission.clear();
++                    }
+                     sensor.sensorHandle = setSubHalIndex(sensor.sensorHandle, subHalIndex);
+                     setDirectChannelFlags(&sensor, mSubHalList[subHalIndex]);
+                     mSensors[sensor.sensorHandle] = sensor;
+diff --git a/vibrator/aidl/default/Android.bp b/vibrator/aidl/default/Android.bp
+index b398305da0..c7307e3113 100644
+--- a/vibrator/aidl/default/Android.bp
++++ b/vibrator/aidl/default/Android.bp
+@@ -45,7 +45,22 @@ cc_binary {
+     name: "android.hardware.vibrator-service.example",
+     relative_install_path: "hw",
+     init_rc: ["vibrator-default.rc"],
+-    vintf_fragments: ["android.hardware.vibrator.xml"],
++    // [bring-up] vintf_fragments is intentionally NOT set here.
++    //
++    // soong rewrites the fragment's <version> to the highest *frozen* aidl
++    // version, which for android.hardware.vibrator is 3 (aidl_api/.../{1,2,3}),
++    // while this binary links android.hardware.vibrator-V4-ndk (the unfrozen
++    // "current" API). Installing the @3 fragment next to the @4 declaration in
++    // the device manifest makes libvintf reject the whole manifest:
++    //   Conflicting FqInstance: IVibrator/default (@4)
++    //     (from /vendor/etc/vintf/manifest.xml)
++    //   vs. IVibrator/default (@3)
++    //     (from /vendor/etc/vintf/manifest/android.hardware.vibrator.xml)
++    //   NULL VINTF MANIFEST!: device
++    // and every HAL registration in the system fails as a result.
++    //
++    // The @4 declaration lives in
++    // device/samsung/sm8150-common/manifest_proven.xml instead.
+     vendor: true,
+     shared_libs: [
+         "libbase",
+@@ -74,3 +89,32 @@ cc_fuzz {
+         ],
+     },
+ }
++
++// Avium beyond1q: SYSTEM variant of the vibrator HAL. The A16 vibrator stack
++// (system_server VibratorManagerService) looks for
++// android.hardware.vibrator.IVibrator{,Manager}/default on /dev/binder; the
++// vendor-domain example service registers on vndbinder and is never found, so
++// haptics never work. This twin drops vendor:true so it registers on
++// /dev/binder. It needs no vendor blob: the implementation writes
++// /sys/class/timed_output/vibrator/enable directly.
++cc_binary {
++    name: "android.hardware.vibrator-service.avium",
++    relative_install_path: "hw",
++    init_rc: ["vibrator-avium.rc"],
++    vintf_fragment_modules: ["android.hardware.vibrator-avium.xml"],
++    shared_libs: [
++        "libbase",
++        "libbinder_ndk",
++        "liblog",
++        "android.hardware.vibrator-V4-ndk",
++    ],
++    static_libs: [
++        "libvibratorexampleimpl",
++    ],
++    srcs: ["main.cpp"],
++}
++
++vintf_fragment {
++    name: "android.hardware.vibrator-avium.xml",
++    src: "android.hardware.vibrator-avium.xml",
++}
+diff --git a/vibrator/aidl/default/Vibrator.cpp b/vibrator/aidl/default/Vibrator.cpp
+index a602c13125..12c6ea0091 100644
+--- a/vibrator/aidl/default/Vibrator.cpp
++++ b/vibrator/aidl/default/Vibrator.cpp
+@@ -16,6 +16,7 @@
+ 
+ #include "vibrator-impl/Vibrator.h"
+ 
++#include <android-base/file.h>
+ #include <android-base/logging.h>
+ #include <thread>
+ 
+@@ -45,8 +46,81 @@ static constexpr float PWLE_BW_MAP_SIZE =
+ // Service specific error code used for vendor vibration effects.
+ static constexpr int32_t ERROR_CODE_INVALID_DURATION = 1;
+ 
++// [bring-up] Real hardware backend for the sysfs timed-output vibrator.
++//
++// The stock AOSP implementation in this directory only keeps a software timer
++// and never touches the hardware, which is fine for an emulator reference but
++// leaves a real device with no haptics: /sys/class/timed_output/vibrator is the
++// standard kernel interface (drivers/staging/android/timed_output.c) and this
++// device's Samsung vibrator driver registers it, so writing the duration in
++// milliseconds there is all that is needed. The kernel counts the time down
++// itself and writes 0 back when done -- there is no separate "off" needed for
++// a plain timed pulse.
++//
++// Values are clamped to a sane range: the framework can ask for extremely long
++// effects during composition, and the kernel node takes a plain int.
++static constexpr const char* kVibratorEnablePath = "/sys/class/timed_output/vibrator/enable";
++static constexpr const char* kVibratorIntensityPath = "/sys/class/timed_output/vibrator/intensity";
++static constexpr int32_t kMaxVibrateMs = 10000;
++
++// The Samsung driver's intensity register is 0..10000.
++static constexpr int32_t kIntensityMax = 10000;
++
++static void writeTimedOutput(int32_t timeoutMs) {
++    if (timeoutMs <= 0) {
++        // An explicit stop. 0 cancels a running pulse.
++        if (!::android::base::WriteStringToFile("0", kVibratorEnablePath)) {
++            PLOG(ERROR) << "failed to write 0 to " << kVibratorEnablePath;
++        }
++        return;
++    }
++    if (timeoutMs > kMaxVibrateMs) {
++        timeoutMs = kMaxVibrateMs;
++    }
++    if (!::android::base::WriteStringToFile(std::to_string(timeoutMs), kVibratorEnablePath)) {
++        PLOG(ERROR) << "failed to write " << timeoutMs << " to " << kVibratorEnablePath;
++    }
++}
++
++// Avium beyond1q: apply the requested strength to the driver before every pulse.
++// The register persists across pulses, so skipping this leaves whatever the last
++// caller wrote -- which is why the motor used to stay at maximum once any app
++// asked for 1.0.
++void Vibrator::writeIntensity(float amplitude) {
++    if (amplitude < 0.0f) amplitude = 0.0f;
++    if (amplitude > 1.0f) amplitude = 1.0f;
++    const int32_t intensity = static_cast<int32_t>(amplitude * kIntensityMax + 0.5f);
++    if (!::android::base::WriteStringToFile(std::to_string(intensity), kVibratorIntensityPath)) {
++        PLOG(ERROR) << "failed to write intensity " << intensity;
++    }
++}
++
++// Coarse framework strengths map onto the three hardware levels the Samsung
++// driver is tuned for (LIGHT ~ 30%, MEDIUM ~ 60%, STRONG = 100%).
++float Vibrator::strengthToAmplitude(EffectStrength strength) {
++    switch (strength) {
++        case EffectStrength::LIGHT:
++            return 0.3f;
++        case EffectStrength::MEDIUM:
++            return 0.6f;
++        case EffectStrength::STRONG:
++        default:
++            return 1.0f;
++    }
++}
++
+ void Vibrator::dispatchVibrate(int32_t timeoutMs,
+                                const std::shared_ptr<IVibratorCallback>& callback) {
++    float amplitude;
++    {
++        std::lock_guard lock(mMutex);
++        amplitude = mAmplitude;
++    }
++    dispatchVibrate(timeoutMs, amplitude, callback);
++}
++
++void Vibrator::dispatchVibrate(int32_t timeoutMs, float amplitude,
++                               const std::shared_ptr<IVibratorCallback>& callback) {
+     {
+         std::lock_guard lock(mMutex);
+         if (mIsVibrating) {
+@@ -58,8 +132,13 @@ void Vibrator::dispatchVibrate(int32_t timeoutMs,
+     }
+     // Note that thread lambdas aren't using implicit capture [=], to avoid capturing "this",
+     // which may be asynchronously destructed.
+-    std::thread([timeoutMs, callback, sharedThis = this->ref<Vibrator>()] {
++    std::thread([timeoutMs, amplitude, callback, sharedThis = this->ref<Vibrator>()] {
+         LOG(VERBOSE) << "Starting delayed callback on another thread";
++        // [bring-up] drive the actual hardware; the kernel handles the timing.
++        // Strength first, then the pulse: the driver samples intensity when it
++        // starts driving the motor.
++        Vibrator::writeIntensity(amplitude);
++        writeTimedOutput(timeoutMs);
+         usleep(timeoutMs * 1000);
+ 
+         if (sharedThis) {
+@@ -94,6 +173,70 @@ void Vibrator::dispatchVibrate(int32_t timeoutMs,
+     }).detach();
+ }
+ 
++void Vibrator::dispatchVibrate(const std::vector<CompositeEffect>& composite,
++                               const std::shared_ptr<IVibratorCallback>& callback) {
++    {
++        std::lock_guard lock(mMutex);
++        if (mIsVibrating) {
++            // Already vibrating, ignore new request.
++            return;
++        }
++        mVibrationCallback = std::shared_ptr<IVibratorCallback>(callback);
++        mIsVibrating = true;
++    }
++    std::thread([composite, callback, sharedThis = this->ref<Vibrator>()] {
++        // Avium beyond1q: the timed_output driver has a single intensity
++        // register, so a composed sequence must be driven one primitive at a
++        // time -- write the segment's scale, pulse it, wait, move on. Passing
++        // the whole sequence as one pulse used to leave the register at
++        // whatever the previous caller set, which reproduced the "haptics
++        // stuck at one strength" symptom on every compose() call.
++        for (const auto& e : composite) {
++            if (e.delayMs > 0) {
++                usleep(e.delayMs * 1000);
++            }
++            int32_t durationMs = 0;
++            sharedThis->getPrimitiveDuration(e.primitive, &durationMs);
++            if (durationMs <= 0) {
++                continue;
++            }
++            Vibrator::writeIntensity(e.scale);
++            writeTimedOutput(durationMs);
++            usleep(durationMs * 1000);
++        }
++
++        if (sharedThis) {
++            std::shared_ptr<IVibratorCallback> vibrationCallback, globalCallback;
++            {
++                std::lock_guard lock(sharedThis->mMutex);
++                globalCallback = std::move(sharedThis->mGlobalVibrationCallback);
++                sharedThis->mIsVibrating = false;
++                // make sure any delayed call will not trigger this again.
++                sharedThis->mGlobalVibrationCallback = nullptr;
++                if (sharedThis->mVibrationCallback == callback) {
++                    vibrationCallback = std::move(sharedThis->mVibrationCallback);
++                    // make sure any delayed call will not trigger this again.
++                    sharedThis->mVibrationCallback = nullptr;
++                } else {
++                    vibrationCallback = nullptr;
++                }
++            }
++            if (vibrationCallback) {
++                LOG(VERBOSE) << "Notifying callback onComplete";
++                if (!vibrationCallback->onComplete().isOk()) {
++                    LOG(ERROR) << "Failed to call onComplete";
++                }
++            }
++            if (globalCallback) {
++                LOG(VERBOSE) << "Notifying global callback onComplete";
++                if (!globalCallback->onComplete().isOk()) {
++                    LOG(ERROR) << "Failed to call onComplete";
++                }
++            }
++        }
++    }).detach();
++}
++
+ void Vibrator::setGlobalVibrationCallback(const std::shared_ptr<IVibratorCallback>& callback) {
+     std::shared_ptr<IVibratorCallback> immediateCallback = nullptr;
+     {
+@@ -141,6 +284,8 @@ ndk::ScopedAStatus Vibrator::getCapabilities(int32_t* _aidl_return) {
+ 
+ ndk::ScopedAStatus Vibrator::off() {
+     LOG(VERBOSE) << "Vibrator off";
++    // [bring-up] stop the hardware immediately, before any callback plumbing.
++    writeTimedOutput(0);
+     std::shared_ptr<IVibratorCallback> callback, globalCallback;
+     {
+         std::lock_guard lock(mMutex);
+@@ -191,7 +336,9 @@ ndk::ScopedAStatus Vibrator::perform(Effect effect, EffectStrength strength,
+     }
+ 
+     constexpr size_t kEffectMillis = 100;
+-    dispatchVibrate(kEffectMillis, callback);
++    // Avium beyond1q: honour the requested strength instead of always driving
++    // the motor at whatever intensity happened to be left in the register.
++    dispatchVibrate(kEffectMillis, strengthToAmplitude(strength), callback);
+     *_aidl_return = kEffectMillis;
+     return ndk::ScopedAStatus::ok();
+ }
+@@ -239,6 +386,14 @@ ndk::ScopedAStatus Vibrator::setAmplitude(float amplitude) {
+     if (amplitude <= 0.0f || amplitude > 1.0f) {
+         return ndk::ScopedAStatus(AStatus_fromExceptionCode(EX_ILLEGAL_ARGUMENT));
+     }
++    // Avium beyond1q: remember the requested strength so later pulses that the
++    // framework starts without an explicit amplitude (vibrate()/on()) use it
++    // rather than the stale value left in the driver register.
++    {
++        std::lock_guard lock(mMutex);
++        mAmplitude = amplitude;
++    }
++    writeIntensity(amplitude);
+     return ndk::ScopedAStatus::ok();
+ }
+ 
+@@ -310,8 +465,9 @@ ndk::ScopedAStatus Vibrator::compose(const std::vector<CompositeEffect>& composi
+         getPrimitiveDuration(e.primitive, &durationMs);
+         totalDuration += e.delayMs + durationMs;
+     }
++    LOG(VERBOSE) << "Vibrator compose total duration: " << totalDuration;
+ 
+-    dispatchVibrate(totalDuration, callback);
++    dispatchVibrate(composite, callback);
+     return ndk::ScopedAStatus::ok();
+ }
+ 
+diff --git a/vibrator/aidl/default/include/vibrator-impl/Vibrator.h b/vibrator/aidl/default/include/vibrator-impl/Vibrator.h
+index 354ba46575..79411899a0 100644
+--- a/vibrator/aidl/default/include/vibrator-impl/Vibrator.h
++++ b/vibrator/aidl/default/include/vibrator-impl/Vibrator.h
+@@ -73,10 +73,29 @@ class Vibrator : public BnVibrator {
+     mutable std::mutex mMutex;
+     bool mIsVibrating GUARDED_BY(mMutex) = false;
+     int32_t mCapabilities GUARDED_BY(mMutex) = 0;
++    // Avium beyond1q: the Samsung timed_output driver keeps one global intensity
++    // register that persists between pulses. The framework calls setAmplitude()
++    // only before some vibrations, so without tracking it here an app that once
++    // asked for 1.0 leaves the motor at maximum for every later pulse -- that is
++    // the "haptics jump to strongest and stay there" symptom. mAmplitude holds
++    // the last requested normalised strength and dispatchVibrate() re-applies it
++    // before every pulse so each vibration uses what the framework asked for at
++    // that moment instead of whatever the previous caller left behind.
++    float mAmplitude GUARDED_BY(mMutex) = 1.0f;
+     std::shared_ptr<IVibratorCallback> mVibrationCallback GUARDED_BY(mMutex) = nullptr;
+     std::shared_ptr<IVibratorCallback> mGlobalVibrationCallback GUARDED_BY(mMutex) = nullptr;
+ 
+     void dispatchVibrate(int32_t timeoutMs, const std::shared_ptr<IVibratorCallback>& callback);
++    void dispatchVibrate(int32_t timeoutMs, float amplitude,
++                         const std::shared_ptr<IVibratorCallback>& callback);
++    // Composed sequences are driven one primitive at a time because the driver
++    // has a single intensity register (see Vibrator.cpp).
++    void dispatchVibrate(const std::vector<CompositeEffect>& composite,
++                         const std::shared_ptr<IVibratorCallback>& callback);
++    // Writes a normalised (0, 1] amplitude to the driver's intensity node.
++    static void writeIntensity(float amplitude);
++    // Maps the framework's coarse EffectStrength onto a normalised amplitude.
++    static float strengthToAmplitude(EffectStrength strength);
+ };
+ 
+ }  // namespace vibrator
+diff --git a/vibrator/aidl/default/vibrator-default.rc b/vibrator/aidl/default/vibrator-default.rc
+index 9e6def3a29..8c1087eb1b 100644
+--- a/vibrator/aidl/default/vibrator-default.rc
++++ b/vibrator/aidl/default/vibrator-default.rc
+@@ -1,4 +1,9 @@
++# [bring-up] user/group are system, not nobody: the backend writes
++# /sys/class/timed_output/vibrator/{enable,intensity}, which the Samsung
++# vibrator driver exposes as system:system 0660
++# (vendor.samsung.hardware.vibrator@2.2-service.rc chowns them to system in
++# early-boot). Running as nobody cannot open them.
+ service vendor.vibrator-default /vendor/bin/hw/android.hardware.vibrator-service.example
+     class hal
+-    user nobody
+-    group nobody
++    user system
++    group system
+diff --git a/wifi/aidl/default/Android.bp b/wifi/aidl/default/Android.bp
+index eb371c7d92..ce81589264 100644
+--- a/wifi/aidl/default/Android.bp
++++ b/wifi/aidl/default/Android.bp
+@@ -141,7 +141,11 @@ cc_binary {
+         "android.hardware.wifi-V4-ndk",
+     ],
+     static_libs: ["android.hardware.wifi-service-lib"],
+-    init_rc: ["android.hardware.wifi-service.rc"],
++    // avium: no init_rc. This bp4a base has no vendor-AIDL bridge; framework
++    // WiFi uses the stock HIDL wifi@1.0 service. The AIDL service rc also
++    // collides with the HIDL service name, and the binary is never used.
++    // This used to be a post-build delete of the rc in fix_vendor_mountpoints.
++    // init_rc: ["android.hardware.wifi-service.rc"],
+     vintf_fragment_modules: ["android.hardware.wifi-service.xml"],
+ }
+ 
+diff --git a/wifi/aidl/default/wifi_legacy_hal.cpp b/wifi/aidl/default/wifi_legacy_hal.cpp
+index c8d6f9b2b6..35e46c99ea 100644
+--- a/wifi/aidl/default/wifi_legacy_hal.cpp
++++ b/wifi/aidl/default/wifi_legacy_hal.cpp
+@@ -1800,6 +1800,14 @@ wifi_error WifiLegacyHal::retrieveIfaceHandles() {
+         LOG(ERROR) << "Failed to enumerate interface handles";
+         return status;
+     }
++    // v126 bring-up debug: the vendor HAL reports interface names that may not
++    // match the names WifiChip allocates ("wlan0"); Samsung's qcacld driver
++    // pre-creates wlan0 AND swlan0 on phy0, and the vendor HAL's internal
++    // iface list decides what lands in iface_name_to_handle_. Keep this at
++    // ERROR level so it survives the boot-time log flood; demote once wifi
++    // bring-up is done.
++    LOG(ERROR) << "retrieveIfaceHandles: vendor HAL reports " << num_iface_handles
++               << " interface(s)";
+     iface_name_to_handle_.clear();
+     for (int i = 0; i < num_iface_handles; ++i) {
+         std::array<char, IFNAMSIZ> iface_name_arr = {};
+@@ -1812,7 +1820,7 @@ wifi_error WifiLegacyHal::retrieveIfaceHandles() {
+         // Assuming the interface name is null terminated since the legacy HAL
+         // API does not return a size.
+         std::string iface_name(iface_name_arr.data());
+-        LOG(INFO) << "Adding interface handle for " << iface_name;
++        LOG(ERROR) << "retrieveIfaceHandles: adding '" << iface_name << "'";
+         iface_name_to_handle_[iface_name] = iface_handles[i];
+     }
+     return WIFI_SUCCESS;
+diff --git a/wifi/supplicant/aidl/Android.bp b/wifi/supplicant/aidl/Android.bp
+index ed85f797af..12ea74d2f3 100644
+--- a/wifi/supplicant/aidl/Android.bp
++++ b/wifi/supplicant/aidl/Android.bp
+@@ -78,7 +78,6 @@ aidl_interface {
+             version: "4",
+             imports: ["android.hardware.wifi.common-V2"],
+         },
+-
+     ],
+     frozen: false,
+ }

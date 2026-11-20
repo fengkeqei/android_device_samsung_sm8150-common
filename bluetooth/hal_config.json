@@ -1,0 +1,11 @@
+{
+  "uartDevicePort": "/dev/ttyHS0",
+  "regOnDelayMs": 100,
+  "lowPowerModeEnabled": true,
+  "lpmEnableProcNode": "/proc/bluetooth/sleep/lpm",
+  "lpmWakingProcNode": "/proc/bluetooth/sleep/btwrite",
+  "lpmWakelockCtrlProcNode": "/proc/bluetooth/sleep/wakelock_ctrl",
+  "rfkillFolderPrefix": "/sys/class/rfkill/rfkill",
+  "rfkillTypeBluetooth": "bluetooth",
+  "enhancedPacketValidationSupported": false
+}

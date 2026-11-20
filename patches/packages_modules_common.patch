@@ -1,0 +1,12 @@
+diff --git a/build/allowed_deps.txt b/build/allowed_deps.txt
+index bc841d72..8599db12 100644
+--- a/build/allowed_deps.txt
++++ b/build/allowed_deps.txt
+@@ -1497,6 +1497,7 @@ NfcNciApex(minSdkVersion:36)
+ NfcNciApexGoogle(minSdkVersion:36)
+ note_memtag_heap_async(minSdkVersion:21)
+ note_memtag_heap_sync(minSdkVersion:21)
++oemnetd_aidl_interface-java(minSdkVersion:30)
+ offlinelocationtimezoneprovider(minSdkVersion:31)
+ okhttp(minSdkVersion:31)
+ okhttp-norepackage(minSdkVersion:30)

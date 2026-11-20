@@ -1,0 +1,17 @@
+<manifest version="1.0" type="device">
+    <!-- v126: the upstream vintf_fragment in
+         external/wpa_supplicant_8/wpa_supplicant/aidl/vendor/Android.bp is
+         generated from the *frozen* AIDL version, which for this interface
+         tops out at 4 (aidl_api/.../{1,2,3,4,current}), while the
+         wpa_supplicant binary links android.hardware.wifi.supplicant-V5-ndk
+         (the "current" API). Declaring version 4 here makes the framework's
+         ISupplicant lookup miss and supplicant's addIface fail:
+           ServiceSpecificException: Conf file does not exist
+         (plus WifiNative "Failed to start supplicant").
+         This fragment declares 5 to match the binary. -->
+    <hal format="aidl">
+        <name>android.hardware.wifi.supplicant</name>
+        <version>5</version>
+        <fqname>ISupplicant/default</fqname>
+    </hal>
+</manifest>

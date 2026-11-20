@@ -1,0 +1,271 @@
+diff --git a/generic/vendor/common/cnd.te b/generic/vendor/common/cnd.te
+index 13d152110..318b86af3 100644
+--- a/generic/vendor/common/cnd.te
++++ b/generic/vendor/common/cnd.te
+@@ -33,7 +33,7 @@ init_daemon_domain(vendor_cnd)
+ 
+ #communicating with QTI wlan driver for WFC/ VTiWLAN quality
+ allow vendor_cnd self:capability net_bind_service;
+-unix_socket_send(vendor_cnd, wpa, hal_wifi_supplicant)
++unix_socket_send(vendor_cnd, wpa, hal_wifi_supplicant_default)
+ allow vendor_cnd wpa_data_file:dir w_dir_perms;
+ allow vendor_cnd wpa_data_file:sock_file create_file_perms;
+ 
+diff --git a/generic/vendor/common/file.te b/generic/vendor/common/file.te
+index 6197110ad..9d98d0800 100644
+--- a/generic/vendor/common/file.te
++++ b/generic/vendor/common/file.te
+@@ -25,17 +25,17 @@
+ # OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN
+ # IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ type vendor_sysfs_audio, fs_type, sysfs_type;
+-type vendor_sysfs_battery_supply, sysfs_type, fs_type;
++
+ type vendor_sysfs_bond0, fs_type, sysfs_type;
+ type vendor_sysfs_boot_adsp, sysfs_type, fs_type;
+ type vendor_sysfs_camera, sysfs_type, fs_type;
+ type vendor_sysfs_cpu_boost, fs_type, sysfs_type;
+-type vendor_sysfs_devfreq, fs_type, sysfs_type;
++
+ type vendor_sysfs_easel, sysfs_type, fs_type;
+ type vendor_sysfs_esoc, sysfs_type, fs_type;
+ type vendor_sysfs_fingerprint, sysfs_type, fs_type;
+ type vendor_sysfs_graphics, sysfs_type, fs_type;
+-type vendor_sysfs_kgsl, sysfs_type, fs_type;
++
+ type vendor_sysfs_kgsl_proc, sysfs_type, fs_type;
+ type vendor_sysfs_kgsl_shell, sysfs_type, fs_type;
+ type vendor_hbtp_kernel_sysfs, sysfs_type, fs_type;
+@@ -144,7 +144,7 @@ type vendor_modem_dump_file, file_type, data_file_type;
+ type vendor_sensors_vendor_data_file, file_type, data_file_type;
+ type vendor_port_bridge_data_file, file_type, data_file_type;
+ type bt_firmware_file, file_type, contextmount_type, vendor_file_type;
+-type vendor_firmware_file, vendor_file_type, file_type;
++
+ type vendor_mdmhelperdata_data_file, file_type, data_file_type;
+ type vendor_mbn_data_file, file_type, data_file_type;
+ type vendor_firmware_data_file, file_type, data_file_type;
+diff --git a/generic/vendor/common/file_contexts b/generic/vendor/common/file_contexts
+index 8e609b799..1b56be039 100644
+--- a/generic/vendor/common/file_contexts
++++ b/generic/vendor/common/file_contexts
+@@ -37,7 +37,6 @@
+ /dev/ipa                                        u:object_r:vendor_ipa_dev:s0
+ /dev/wwan_ioctl                                 u:object_r:vendor_ipa_dev:s0
+ /dev/ipaNatTable                                u:object_r:vendor_ipa_dev:s0
+-/dev/cpu_dma_latency                            u:object_r:vendor_latency_device:s0
+ /dev/dpl_ctrl                                   u:object_r:vendor_rmnet_device:s0
+ /dev/rmnet_ctrl.*                               u:object_r:vendor_rmnet_device:s0
+ /dev/at_.*                                      u:object_r:vendor_at_device:s0
+@@ -310,7 +309,6 @@
+ /data/vendor/nfc(/.*)?                 u:object_r:vendor_nfc_vendor_data_file:s0
+ /data/vendor/radio(/.*)?               u:object_r:vendor_radio_vendor_data_file:s0
+ /data/vendor/wifi/wlan_logs(/.*)?      u:object_r:vendor_wifi_vendor_log_data_file:s0
+-/data/vendor/log(/.*)?                 u:object_r:vendor_log_file:s0
+ /data/vendor/ramdump(/.*)?             u:object_r:vendor_ramdump_vendor_data_file:s0
+ /data/vendor/ssrdump(/.*)?             u:object_r:vendor_ramdump_vendor_data_file:s0
+ /data/vendor/pddump(/.*)?              u:object_r:vendor_pddump_data_file:s0
+diff --git a/generic/vendor/common/genfs_contexts b/generic/vendor/common/genfs_contexts
+index a08964baa..d41d37a0d 100644
+--- a/generic/vendor/common/genfs_contexts
++++ b/generic/vendor/common/genfs_contexts
+@@ -123,7 +123,6 @@ genfscon sysfs /class/kgsl/kgsl-3d0/perfcounter                                u
+ 
+ genfscon sysfs /module/drm/parameters/vblankoffdelay                           u:object_r:vendor_sysfs_graphics:s0
+ 
+-genfscon sysfs /class/sensors u:object_r:vendor_sysfs_sensors:s0
+ genfscon sysfs /bus/esoc u:object_r:vendor_sysfs_esoc:s0
+ 
+ genfscon sysfs /devices/soc/soc:hbtp/secure_touch                           u:object_r:vendor_hbtp_kernel_sysfs:s0
+diff --git a/generic/vendor/common/hal_audio_default.te b/generic/vendor/common/hal_audio_default.te
+index 5eb6c1560..1f96d696e 100644
+--- a/generic/vendor/common/hal_audio_default.te
++++ b/generic/vendor/common/hal_audio_default.te
+@@ -38,7 +38,7 @@ allow hal_audio_default mnt_vendor_file:dir search;
+ 
+ #Allow access to firmware
+ allow hal_audio firmware_file:dir r_dir_perms;
+-allow hal_audio firmware_file:file r_file_perms;
++allow hal_audio_default firmware_file:file r_file_perms;
+ 
+ # Allow hal_audio to read soundcard state under /proc/asound
+ allow hal_audio vendor_proc_audiod:file r_file_perms;
+diff --git a/generic/vendor/common/hal_telephony.te b/generic/vendor/common/hal_telephony.te
+index 62cab2e2c..a5570bbcc 100644
+--- a/generic/vendor/common/hal_telephony.te
++++ b/generic/vendor/common/hal_telephony.te
+@@ -25,7 +25,12 @@
+ #OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN
+ #IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ 
+-set_prop(hal_telephony_server, vendor_radio_prop);
++# [v135] Avium beyond1q: disabled. The avium_radio system-domain twin
++# inherits it via hal_telephony_server and collides with
++# vendor_restricted_prop(vendor_radio_prop)'s neverallow { coredomain ... }
++# and the platform property.te:488 counterpart -- no QC telephony HAL
++# process exists on this device.
++# set_prop(hal_telephony_server, vendor_radio_prop);
+ 
+ # Allow Telephony AIDL Service
+ hal_attribute_service(hal_telephony, vendor_hal_telephony_service)
+diff --git a/generic/vendor/common/property.te b/generic/vendor/common/property.te
+index 22c9b8a4e..2b1ae09e7 100644
+--- a/generic/vendor/common/property.te
++++ b/generic/vendor/common/property.te
+@@ -34,6 +34,7 @@ vendor_restricted_prop(vendor_cnd_prop);
+ vendor_internal_prop(vendor_crash_cnt_prop);
+ vendor_internal_prop(vendor_crash_detect_prop);
+ vendor_restricted_prop(vendor_ims_prop);
++vendor_restricted_prop(vendor_radio_prop);
+ vendor_internal_prop(vendor_ipacm_prop);
+ vendor_internal_prop(vendor_ipacm-diag_prop);
+ vendor_internal_prop(vendor_modem_diag_prop);
+@@ -47,7 +48,6 @@ vendor_restricted_prop(vendor_tee_listener_prop);
+ vendor_restricted_prop(vendor_km_strongbox_version_prop);
+ vendor_restricted_prop(vendor_display_prop);
+ vendor_internal_prop(vendor_usb_prop);
+-vendor_restricted_prop(vendor_radio_prop);
+ vendor_internal_prop(vendor_qteeconnector_opti_prop);
+ 
+ #Needed for ubwc support
+@@ -98,7 +98,6 @@ vendor_restricted_prop(vendor_public_vendor_default_prop);
+ vendor_restricted_prop(vendor_alarm_boot_prop);
+ 
+ #wlan-vendor prop
+-vendor_internal_prop(vendor_wifi_prop);
+ 
+ #qdcmss property
+ vendor_internal_prop(vendor_qdcmss_prop);
+diff --git a/generic/vendor/common/property_contexts b/generic/vendor/common/property_contexts
+index 75a6d8b64..16016354a 100644
+--- a/generic/vendor/common/property_contexts
++++ b/generic/vendor/common/property_contexts
+@@ -70,10 +70,7 @@ vendor.wlan.driver.version       u:object_r:vendor_wifi_version:s0
+ vendor.wlan.firmware.version     u:object_r:vendor_wifi_version:s0
+ persist.vendor.usb.        u:object_r:vendor_usb_prop:s0
+ ro.vendor.usb.             u:object_r:vendor_usb_prop:s0
+-vendor.display.               u:object_r:vendor_display_prop:s0
+-vendor.display.disable_rounded_corner_thread  u:object_r:vendor_display_prop:s0
+ ro.vendor.display.            u:object_r:vendor_display_prop:s0
+-persist.vendor.display.       u:object_r:vendor_display_prop:s0
+ vendor.gralloc.            u:object_r:vendor_gralloc_prop:s0
+ vendor.peripheral.         u:object_r:vendor_per_mgr_state_prop:s0
+ vendor.ims.                u:object_r:vendor_ims_prop:s0
+@@ -128,7 +125,6 @@ persist.vendor.data.qmipriod_load u:object_r:vendor_data_qmipriod_prop:s0
+ vendor.wlan.  u:object_r:vendor_wifi_prop:s0
+ 
+ #qdcm socket service
+-vendor.display.qdcm_socket_service u:object_r:vendor_qdcmss_prop:s0
+ 
+ #keymaster strongbox service
+ vendor.keymaster.strongbox.version u:object_r:vendor_km_strongbox_version_prop:s0
+diff --git a/qva/vendor/common/file_contexts b/qva/vendor/common/file_contexts
+index 0618a96f3..63da26e88 100644
+--- a/qva/vendor/common/file_contexts
++++ b/qva/vendor/common/file_contexts
+@@ -58,7 +58,6 @@
+ /dev/socket/mlid                                u:object_r:vendor_mlid_socket:s0
+ /dev/socket/qwes_ipc                            u:object_r:vendor_qwesd_socket:s0
+ /dev/socket/ssgqmig                             u:object_r:vendor_ssgqmig_socket:s0
+-/dev/socket/ssgtzd                              u:object_r:vendor_ssgtzd_socket:s0
+ /dev/socket/adpl_cmd_uds_file                   u:object_r:vendor_dataadpl_socket:s0
+ /dev/socket/vendor_wpa_wlan[0-9]                u:object_r:vendor_wifi_vendor_wpa_socket:s0
+ /dev/socket/wigig/wpa_wigig[0-9]                u:object_r:vendor_wigig_vendor_wpa_socket:s0
+@@ -198,7 +197,6 @@
+ #
+ /data/vendor/iop(/.*)?                                              u:object_r:vendor_iop_data_file:s0
+ /data/vendor/misc/qti_fp(/.*)?                                      u:object_r:vendor_qfp-daemon_data_file:s0
+-/data/vendor/wifi(/.*)?                                             u:object_r:vendor_wifi_vendor_data_file:s0
+ /data/vendor/wifi/sockets(/.*)?                                     u:object_r:vendor_wifi_vendor_wpa_socket:s0
+ /data/vendor/wifi/wigig_sockets(/.*)?                               u:object_r:vendor_wifi_vendor_wpa_socket:s0
+ /data/vendor/wifi/wigig_sockets/wpa_ctrl.*                          u:object_r:vendor_wifi_vendor_wpa_socket:s0
+diff --git a/qva/vendor/common/fstman.te b/qva/vendor/common/fstman.te
+index 02e69f23f..901872311 100644
+--- a/qva/vendor/common/fstman.te
++++ b/qva/vendor/common/fstman.te
+@@ -70,7 +70,7 @@ allow vendor_fstman vendor_wifi_vendor_data_file:file create_file_perms;
+ 
+ # vendor_fstman needs to communicate with wpa_supplicant and hostapd using socket
+ # for managing FST state
+-allow vendor_fstman { hal_wifi_supplicant hal_wifi_hostapd_default }:unix_dgram_socket sendto;
++allow vendor_fstman { hal_wifi_supplicant_default hal_wifi_hostapd_default }:unix_dgram_socket sendto;
+ # supplicant interface sockets
+ allow vendor_fstman vendor_wifi_vendor_wpa_socket:dir rw_dir_perms;
+ allow vendor_fstman vendor_wifi_vendor_wpa_socket:sock_file create_file_perms;
+diff --git a/qva/vendor/common/hal_vibrator.te b/qva/vendor/common/hal_vibrator.te
+index 644be03a9..416f4b22b 100644
+--- a/qva/vendor/common/hal_vibrator.te
++++ b/qva/vendor/common/hal_vibrator.te
+@@ -28,4 +28,9 @@
+ r_dir_file(hal_vibrator, sysfs_leds)
+ allow hal_vibrator input_device:dir r_dir_perms;
+ allow hal_vibrator input_device:chr_file rw_file_perms;
+-use_libsoc_helper(hal_vibrator);
++# [v135] Avium beyond1q: disabled. Its only effect is
++# get_prop(hal_vibrator, vendor_soc_id_prop), which the avium_vibrator
++# system-domain twin inherits (hal_vibrator attribute) and collides with
++# vendor_internal_prop's neverallow { coredomain ... } -- no QC vibrator
++# HAL process exists on this device.
++# use_libsoc_helper(hal_vibrator);
+diff --git a/qva/vendor/common/hal_wifi_supplicant.te b/qva/vendor/common/hal_wifi_supplicant.te
+index 44fdd8e5e..84cb03d72 100644
+--- a/qva/vendor/common/hal_wifi_supplicant.te
++++ b/qva/vendor/common/hal_wifi_supplicant.te
+@@ -34,11 +34,11 @@ allow hal_wifi_supplicant_default self:qipcrtr_socket create_socket_perms_no_ioc
+ allow hal_wifi_supplicant_default proc_net:file write;
+ hal_client_domain(hal_wifi_supplicant_default,hal_wifi);
+ 
+-allow hal_wifi_supplicant vendor_wifi_vendor_data_file:dir create_dir_perms;
+-allow hal_wifi_supplicant vendor_wifi_vendor_data_file:file create_file_perms;
+-allow hal_wifi_supplicant vendor_wifi_vendor_wpa_socket:dir create_dir_perms;
+-allow hal_wifi_supplicant vendor_wifi_vendor_wpa_socket:sock_file create_file_perms;
+-allow hal_wifi_supplicant vendor_wigig_vendor_wpa_socket:sock_file rw_file_perms;
++allow hal_wifi_supplicant_default vendor_wifi_vendor_data_file:dir create_dir_perms;
++allow hal_wifi_supplicant_default vendor_wifi_vendor_data_file:file create_file_perms;
++allow hal_wifi_supplicant_default vendor_wifi_vendor_wpa_socket:dir create_dir_perms;
++allow hal_wifi_supplicant_default vendor_wifi_vendor_wpa_socket:sock_file create_file_perms;
++allow hal_wifi_supplicant_default vendor_wigig_vendor_wpa_socket:sock_file rw_file_perms;
+ allow hal_wifi_supplicant_default hal_wifi_default:binder call;
+ allow hal_wifi_supplicant_default hal_wifi_hwservice:hwservice_manager find;
+ allow hal_wifi_supplicant_default vendor_tombstone_data_file:dir { open read search };
+diff --git a/qva/vendor/common/mutualex.te b/qva/vendor/common/mutualex.te
+index b72525836..0129cec02 100644
+--- a/qva/vendor/common/mutualex.te
++++ b/qva/vendor/common/mutualex.te
+@@ -42,7 +42,7 @@ allow vendor_mutualex vendor_wifi_vendor_data_file:dir r_dir_perms;
+ allow vendor_mutualex vendor_wifi_vendor_wpa_socket:sock_file write;
+ 
+ #communicating with wpa supplicant for sending commands/listening to events
+-unix_socket_send(vendor_mutualex, wpa, hal_wifi_supplicant)
++unix_socket_send(vendor_mutualex, wpa, hal_wifi_supplicant_default)
+ allow vendor_mutualex wpa_data_file:dir w_dir_perms;
+ allow vendor_mutualex wpa_data_file:sock_file create_file_perms;
+ 
+diff --git a/qva/vendor/common/ssgtzd.te b/qva/vendor/common/ssgtzd.te
+index 2689f7a98..d316f436c 100644
+--- a/qva/vendor/common/ssgtzd.te
++++ b/qva/vendor/common/ssgtzd.te
+@@ -26,8 +26,8 @@
+ # IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ 
+ # vendor_ssgtzd - SSG TZ Daemon
+-type vendor_ssgtzd, domain, mlstrustedsubject;
+-type vendor_ssgtzd_exec, exec_type, vendor_file_type, file_type;
++
++
+ 
+ init_daemon_domain(vendor_ssgtzd)
+ 
+diff --git a/qva/vendor/common/wigighalsvc.te b/qva/vendor/common/wigighalsvc.te
+index e48ccd711..b24617f9d 100644
+--- a/qva/vendor/common/wigighalsvc.te
++++ b/qva/vendor/common/wigighalsvc.te
+@@ -54,7 +54,7 @@ allow vendor_hal_wigig hostapd_data_file:dir rw_dir_perms;
+ allow vendor_hal_wigig hostapd_data_file:file create_file_perms;
+ 
+ # connect to supplicant by socket
+-allow vendor_hal_wigig { hal_wifi_supplicant hal_wifi_hostapd_default }:unix_dgram_socket sendto;
++allow vendor_hal_wigig { hal_wifi_supplicant_default hal_wifi_hostapd_default }:unix_dgram_socket sendto;
+ allow vendor_hal_wigig vendor_wifi_vendor_wpa_socket:dir rw_dir_perms;
+ allow vendor_hal_wigig vendor_wifi_vendor_wpa_socket:sock_file create_file_perms;
+ allow vendor_hal_wigig vendor_wigig_vendor_wpa_socket:sock_file rw_file_perms;

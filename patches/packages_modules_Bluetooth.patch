@@ -1,0 +1,29 @@
+diff --git a/system/stack/btm/btm_sco_hfp_hal.cc b/system/stack/btm/btm_sco_hfp_hal.cc
+index c2c7239dd3..ab42eac374 100644
+--- a/system/stack/btm/btm_sco_hfp_hal.cc
++++ b/system/stack/btm/btm_sco_hfp_hal.cc
+@@ -30,7 +30,23 @@ void init() {
+ bool is_coding_format_supported(esco_coding_format_t /* coding_format */) { return true; }
+ 
+ // Android statically compiles WBS support.
+-bool get_wbs_supported() { return true; }
++//
++// beyond1q: force CVSD by default (A15 WORKLOG 72-2i). The Qualcomm msmnile
++// audio HAL (audio.primary.msmnile.so) hardcodes SND_DEVICE_OUT_BT_SCO to
++// KHZ_8 and only switches to KHZ_16 on the "bt_wb_speech_enabled"
++// set_parameters key -- a key only Samsung's stock BT app ever sends, and one
++// the blob does not even recognize (verified against its string table). So
++// the AOSP stack always negotiates mSBC (16 kHz) while the codec front end
++// runs at 8 kHz: SCO audio comes out slowed threefold ("monster voice") or
++// call audio fails entirely. get_wbs_supported() is the single funnel for
++// codec negotiation (bta_ag_cmd.cc AT+BAC, btif_hf.cc override,
++// bta_ag_sco.cc eSCO params), so returning false here pins the whole chain to
++// CVSD 8 kHz, matching the HAL. Flip with
++//   setprop persist.bluetooth.hfp.force_cvsd false
++// on targets that actually have a WB audio path.
++bool get_wbs_supported() {
++  return !osi_property_get_bool("persist.bluetooth.hfp.force_cvsd", true);
++}
+ 
+ // Software path implies support of SWB.
+ bool get_swb_supported() {

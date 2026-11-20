@@ -1,0 +1,510 @@
+diff --git a/core/java/android/app/SystemServiceRegistry.java b/core/java/android/app/SystemServiceRegistry.java
+index 525923ef12bf..31a0948e7ed5 100644
+--- a/core/java/android/app/SystemServiceRegistry.java
++++ b/core/java/android/app/SystemServiceRegistry.java
+@@ -2122,6 +2122,14 @@ public final class SystemServiceRegistry {
+                     return null;
+                 }
+             }
++            // Avium beyond1q (v132bv): same dropbox loop-cut as onServiceNotFound.
++            // "Manager wrapper not available: dropbox" is the PRIMARY wtf source
++            // feeding AMS.handleApplicationWtf -> addErrorToDropBox ->
++            // getSystemService("dropbox") -> this line again.
++            if (Context.DROPBOX_SERVICE.equals(name)) {
++                Slog.e(TAG, "Manager wrapper not available: " + name);
++                return null;
++            }
+             Slog.wtf(TAG, "Manager wrapper not available: " + name);
+             return null;
+         }
+@@ -2653,6 +2661,20 @@ public final class SystemServiceRegistry {
+     /** @hide */
+     @RavenwoodKeepWholeClass
+     public static void onServiceNotFound(ServiceNotFoundException e) {
++        // Avium beyond1q (v132bu): break the dropbox self-coupling loop.
++        // DropBoxManagerService registers in startCoreServices, but AMS
++        // (startBootstrapServices) already handles incoming wtf() before
++        // that point; addErrorToDropBox -> getSystemService("dropbox") ->
++        // this method -> Log.wtf -> AMS.handleApplicationWtf ->
++        // addErrorToDropBox again. On this build the loop runs unthrottled
++        // (32k+ am_wtf events, ~3 MB/s of stack-trace strings) and OOM-kills
++        // system_server every few minutes, so SystemUI never survives long
++        // enough to draw the launcher. Missing dropbox degrades to a plain
++        // error log instead of wtf.
++        if (e.getMessage() != null && e.getMessage().contains("dropbox")) {
++            Log.e(TAG, e.getMessage());
++            return;
++        }
+         // We're mostly interested in tracking down long-lived core system
+         // components that might stumble if they obtain bad references; just
+         // emit a tidy log message for normal apps
+diff --git a/packages/SystemUI/src/com/android/systemui/shade/NotificationsQSContainerController.kt b/packages/SystemUI/src/com/android/systemui/shade/NotificationsQSContainerController.kt
+index 1582da37a033..7d1e476e0482 100644
+--- a/packages/SystemUI/src/com/android/systemui/shade/NotificationsQSContainerController.kt
++++ b/packages/SystemUI/src/com/android/systemui/shade/NotificationsQSContainerController.kt
+@@ -202,7 +202,12 @@ constructor(
+         val estimatedHeight =
+             2 * resources.getDimensionPixelSize(R.dimen.large_screen_shade_header_min_height) +
+                 resources.getDimensionPixelSize(R.dimen.new_qs_header_non_clickable_element_height)
+-        return estimatedHeight.coerceAtLeast(minHeight)
++        // beyond1q: 右上角挖孔高 150px, QS 态内容整体从挖孔下沿开始 (ShadeHeaderController
++        // 给 privacy_container 加了 holeBottom 的 top margin), 所以头部再加高同样一段。
++        val holeBottom =
++            runCatching { mView.rootWindowInsets?.displayCutout?.boundingRectTop?.bottom ?: 0 }
++                .getOrDefault(0)
++        return (estimatedHeight + holeBottom).coerceAtLeast(minHeight)
+     }
+ 
+     override fun setCustomizerAnimating(animating: Boolean) {
+diff --git a/packages/SystemUI/src/com/android/systemui/shade/ShadeHeaderController.kt b/packages/SystemUI/src/com/android/systemui/shade/ShadeHeaderController.kt
+index 5ab6a267de20..ad804afba6bb 100644
+--- a/packages/SystemUI/src/com/android/systemui/shade/ShadeHeaderController.kt
++++ b/packages/SystemUI/src/com/android/systemui/shade/ShadeHeaderController.kt
+@@ -23,6 +23,11 @@ import android.app.PendingIntent
+ import android.app.StatusBarManager
+ import android.content.Context
+ import android.content.Intent
++import android.database.ContentObserver
++import android.net.Uri
++import android.os.Handler
++import android.os.Looper
++import android.provider.Settings
+ import android.content.res.Configuration
+ import android.graphics.Insets
+ import android.os.Bundle
+@@ -42,10 +47,12 @@ import androidx.compose.ui.Modifier
+ import androidx.compose.ui.graphics.Color
+ import androidx.compose.ui.platform.ComposeView
+ import androidx.constraintlayout.motion.widget.MotionLayout
++import androidx.constraintlayout.widget.ConstraintSet
+ import androidx.core.view.doOnLayout
+ import androidx.core.view.isVisible
+ import androidx.lifecycle.compose.collectAsStateWithLifecycle
+ import com.android.app.animation.Interpolators
++import com.android.internal.policy.SystemBarUtils
+ import com.android.compose.theme.PlatformTheme
+ import com.android.keyguard.AlphaOptimizedLinearLayout
+ import com.android.systemui.Dumpable
+@@ -484,6 +491,11 @@ constructor(
+         clock.setOnClickListener { launchClockActivity() }
+ 
+         dumpManager.registerDumpable(this)
++        context.contentResolver.registerContentObserver(
++            Settings.Global.getUriFor("status_bar_padding_top_px"),
++            false,
++            userOffsetObserver,
++        )
+         configurationController.addCallback(configurationControllerListener)
+         demoModeController.addCallback(demoModeReceiver)
+         statusBarIconController.addIconGroup(iconManager)
+@@ -497,6 +509,7 @@ constructor(
+         clock.setOnClickListener(null)
+         privacyIconsController.chipVisibilityListener = null
+         dumpManager.unregisterDumpable(this::class.java.simpleName)
++        context.contentResolver.unregisterContentObserver(userOffsetObserver)
+         configurationController.removeCallback(configurationControllerListener)
+         demoModeController.removeCallback(demoModeReceiver)
+         statusBarIconController.removeIconGroup(iconManager)
+@@ -568,6 +581,70 @@ constructor(
+         }
+     }
+ 
++    // beyond1q: 用户可调的状态栏内容偏移 (Settings.Global, 与 PhoneStatusBarView/
++    // KeyguardStatusBarView 同一 key)。下拉 QS 头部的行位置也跟随它, 与普通状态栏对齐。
++    private fun getUserOffset(): Int =
++        try {
++            Math.max(
++                0,
++                Settings.Global.getInt(
++                    context.contentResolver, "status_bar_padding_top_px", 20
++                ),
++            )
++        } catch (e: Exception) {
++            20
++        }
++
++    // QQS 态: 单行 (clock | date | icons) 顶到状态栏内容位置; QS 态: 整体下移到
++    // 挖孔下沿, 避开右上角前置摄像头。
++    private fun applyUserOffsetConstraints() {
++        val barHeight = SystemBarUtils.getStatusBarHeight(context)
++        val userOffset = getUserOffset()
++        val holeBottom = cutout?.boundingRectTop?.bottom ?: 0
++        header.updateConstraints(QQS_HEADER_CONSTRAINT) {
++            setGuidelineBegin(R.id.qqs_header_bottom_guideline, barHeight)
++            connect(
++                R.id.clock,
++                ConstraintSet.TOP,
++                ConstraintSet.PARENT_ID,
++                ConstraintSet.TOP,
++                userOffset,
++            )
++            connect(
++                R.id.shade_header_system_icons,
++                ConstraintSet.TOP,
++                ConstraintSet.PARENT_ID,
++                ConstraintSet.TOP,
++                userOffset,
++            )
++            connect(
++                R.id.privacy_container,
++                ConstraintSet.TOP,
++                ConstraintSet.PARENT_ID,
++                ConstraintSet.TOP,
++                userOffset,
++            )
++        }
++        if (holeBottom > 0) {
++            header.updateConstraints(QS_HEADER_CONSTRAINT) {
++                connect(
++                    R.id.privacy_container,
++                    ConstraintSet.TOP,
++                    ConstraintSet.PARENT_ID,
++                    ConstraintSet.TOP,
++                    holeBottom,
++                )
++            }
++        }
++    }
++
++    private val userOffsetObserver =
++        object : ContentObserver(Handler(Looper.getMainLooper())) {
++            override fun onChange(selfChange: Boolean) {
++                applyUserOffsetConstraints()
++            }
++        }
++
+     private fun updateConstraintsForInsets(view: MotionLayout, insets: WindowInsets) {
+         val insetsProvider = statusBarContentInsetsProvider ?: return
+         val cutout = insets.displayCutout.also { this.cutout = it }
+@@ -604,6 +681,7 @@ constructor(
+ 
+         view.setPadding(view.paddingLeft, sbInsets.top, view.paddingRight, view.paddingBottom)
+         view.updateAllConstraints(changes)
++        applyUserOffsetConstraints()
+         updateBatteryMode()
+     }
+ 
+diff --git a/packages/SystemUI/src/com/android/systemui/statusbar/phone/KeyguardStatusBarView.java b/packages/SystemUI/src/com/android/systemui/statusbar/phone/KeyguardStatusBarView.java
+index 83e5db4db6fe..e54172747835 100644
+--- a/packages/SystemUI/src/com/android/systemui/statusbar/phone/KeyguardStatusBarView.java
++++ b/packages/SystemUI/src/com/android/systemui/statusbar/phone/KeyguardStatusBarView.java
+@@ -21,13 +21,17 @@ import static com.android.systemui.util.Utils.getStatusBarHeaderHeightKeyguard;
+ 
+ import android.annotation.ColorInt;
+ import android.content.Context;
++import android.database.ContentObserver;
+ import android.content.res.Configuration;
+ import android.content.res.Resources;
+ import android.graphics.Color;
+ import android.graphics.Insets;
+ import android.graphics.Rect;
+ import android.graphics.drawable.Drawable;
++import android.os.Handler;
++import android.os.Looper;
+ import android.os.Trace;
++import android.provider.Settings;
+ import android.util.AttributeSet;
+ import android.util.TypedValue;
+ import android.view.DisplayCutout;
+@@ -153,6 +157,51 @@ public class KeyguardStatusBarView extends RelativeLayout {
+         StatusBarUserChipViewBinder.bind(mUserSwitcherContainer, viewModel);
+     }
+ 
++    private ContentObserver mOffsetObserver;
++
++    private static int getUserOffset(Context c) {
++        try {
++            // 40px = 原厂 OneUI 的状态栏内容位置 (用户实测对齐挖孔下沿)
++            // 150px 栏高下 20px 为原厂信号位置 (用户实测)
++            return Math.max(0, Settings.Global.getInt(
++                    c.getContentResolver(), "status_bar_padding_top_px", 20));
++        } catch (Exception e) {
++            return 0;
++        }
++    }
++
++    private void applyUserOffset() {
++        mStatusIconArea.setPaddingRelative(
++                mStatusIconArea.getPaddingStart(),
++                getUserOffset(mContext),
++                mStatusIconArea.getPaddingEnd(),
++                mStatusIconArea.getPaddingBottom()
++        );
++    }
++
++    @Override
++    protected void onAttachedToWindow() {
++        super.onAttachedToWindow();
++        applyUserOffset();
++        mOffsetObserver = new ContentObserver(new Handler(Looper.getMainLooper())) {
++            @Override
++            public void onChange(boolean selfChange) {
++                applyUserOffset();
++            }
++        };
++        mContext.getContentResolver().registerContentObserver(
++                Settings.Global.getUriFor("status_bar_padding_top_px"), false, mOffsetObserver);
++    }
++
++    @Override
++    protected void onDetachedFromWindow() {
++        super.onDetachedFromWindow();
++        if (mOffsetObserver != null) {
++            mContext.getContentResolver().unregisterContentObserver(mOffsetObserver);
++            mOffsetObserver = null;
++        }
++    }
++
+     @Override
+     protected void onConfigurationChanged(Configuration newConfig) {
+         super.onConfigurationChanged(newConfig);
+@@ -167,12 +216,7 @@ public class KeyguardStatusBarView extends RelativeLayout {
+         updateSystemIconsLayoutParams();
+ 
+         // mStatusIconArea
+-        mStatusIconArea.setPaddingRelative(
+-                mStatusIconArea.getPaddingStart(),
+-                getResources().getDimensionPixelSize(R.dimen.status_bar_padding_top),
+-                mStatusIconArea.getPaddingEnd(),
+-                mStatusIconArea.getPaddingBottom()
+-        );
++        applyUserOffset();
+ 
+         // mStatusIconContainer
+         mStatusIconContainer.setPaddingRelative(
+diff --git a/packages/SystemUI/src/com/android/systemui/statusbar/phone/PhoneStatusBarView.java b/packages/SystemUI/src/com/android/systemui/statusbar/phone/PhoneStatusBarView.java
+index e28ea85de81d..d300d4ff378e 100644
+--- a/packages/SystemUI/src/com/android/systemui/statusbar/phone/PhoneStatusBarView.java
++++ b/packages/SystemUI/src/com/android/systemui/statusbar/phone/PhoneStatusBarView.java
+@@ -18,11 +18,15 @@ package com.android.systemui.statusbar.phone;
+ 
+ import android.annotation.Nullable;
+ import android.content.Context;
++import android.database.ContentObserver;
+ import android.content.res.Configuration;
+ import android.content.res.Resources;
+ import android.graphics.Insets;
+ import android.graphics.Rect;
+ import android.graphics.Region;
++import android.os.Handler;
++import android.os.Looper;
++import android.provider.Settings;
+ import android.util.AttributeSet;
+ import android.util.Log;
+ import android.view.Display;
+@@ -137,9 +141,33 @@ public class PhoneStatusBarView extends FrameLayout {
+         updateResources();
+     }
+ 
++    // beyond1q: user-tunable vertical offset ("status_bar_padding_top_px" in
++    // Settings.Global) so the clock/icons can be dragged clear of the camera
++    // hole with the StatusBarTuner app.
++    private ContentObserver mOffsetObserver;
++
++    private static int getUserOffset(Context c) {
++        try {
++            // 40px = 原厂 OneUI 的状态栏内容位置 (用户实测对齐挖孔下沿)
++            // 150px 栏高下 20px 为原厂信号位置 (用户实测)
++            return Math.max(0, Settings.Global.getInt(
++                    c.getContentResolver(), "status_bar_padding_top_px", 20));
++        } catch (Exception e) {
++            return 0;
++        }
++    }
++
+     @Override
+     protected void onAttachedToWindow() {
+         super.onAttachedToWindow();
++        mOffsetObserver = new ContentObserver(new Handler(Looper.getMainLooper())) {
++            @Override
++            public void onChange(boolean selfChange) {
++                updateStatusBarHeight();
++            }
++        };
++        mContext.getContentResolver().registerContentObserver(
++                Settings.Global.getUriFor("status_bar_padding_top_px"), false, mOffsetObserver);
+         if (updateDisplayParameters()) {
+             updateLayoutForCutout();
+             updateWindowHeight();
+@@ -149,6 +177,10 @@ public class PhoneStatusBarView extends FrameLayout {
+     @Override
+     protected void onDetachedFromWindow() {
+         super.onDetachedFromWindow();
++        if (mOffsetObserver != null) {
++            mContext.getContentResolver().unregisterContentObserver(mOffsetObserver);
++            mOffsetObserver = null;
++        }
+         mDisplayCutout = null;
+     }
+ 
+@@ -351,7 +383,7 @@ public class PhoneStatusBarView extends FrameLayout {
+ 
+         mStatusBarContents.setPaddingRelative(
+                 statusBarPaddingStart,
+-                getResources().getDimensionPixelSize(R.dimen.status_bar_padding_top),
++                getUserOffset(mContext),
+                 getResources().getDimensionPixelSize(R.dimen.status_bar_padding_end),
+                 0);
+ 
+diff --git a/packages/SystemUI/src/com/android/systemui/statusbar/window/StatusBarWindowControllerImpl.java b/packages/SystemUI/src/com/android/systemui/statusbar/window/StatusBarWindowControllerImpl.java
+index 7e21e55cbb25..3fa384e64eed 100644
+--- a/packages/SystemUI/src/com/android/systemui/statusbar/window/StatusBarWindowControllerImpl.java
++++ b/packages/SystemUI/src/com/android/systemui/statusbar/window/StatusBarWindowControllerImpl.java
+@@ -28,13 +28,17 @@ import static com.android.systemui.util.leak.RotationUtils.ROTATION_SEASCAPE;
+ import static com.android.systemui.util.leak.RotationUtils.ROTATION_UPSIDE_DOWN;
+ 
+ import android.content.Context;
++import android.database.ContentObserver;
+ import android.content.res.Configuration;
+ import android.graphics.Insets;
+ import android.graphics.PixelFormat;
+ import android.graphics.Rect;
+ import android.os.Binder;
++import android.os.Handler;
++import android.os.Looper;
+ import android.os.RemoteException;
+ import android.os.Trace;
++import android.provider.Settings;
+ import android.util.Log;
+ import android.view.Display;
+ import android.view.DisplayCutout;
+@@ -102,6 +106,19 @@ public class StatusBarWindowControllerImpl implements StatusBarWindowController
+     private final WindowManager.LayoutParams mLpChanged;
+     private final Binder mInsetsSourceOwner = new Binder();
+ 
++    private ContentObserver mOffsetObserver;
++
++    private static int getUserOffset(Context c) {
++        try {
++            // 40px = 原厂 OneUI 的状态栏内容位置 (用户实测对齐挖孔下沿)
++            // 150px 栏高下 20px 为原厂信号位置 (用户实测)
++            return Math.max(0, Settings.Global.getInt(
++                    c.getContentResolver(), "status_bar_padding_top_px", 20));
++        } catch (Exception e) {
++            return 0;
++        }
++    }
++
+     private final ConfigurationController.ConfigurationListener mConfigurationListener =
+             new ConfigurationController.ConfigurationListener() {
+                 @Override
+@@ -124,6 +141,14 @@ public class StatusBarWindowControllerImpl implements StatusBarWindowController
+             @StatusBarWindowLog LogBuffer logBuffer,
+             @Assisted int displayId) {
+         mContext = context;
++        mOffsetObserver = new ContentObserver(new Handler(Looper.getMainLooper())) {
++            @Override
++            public void onChange(boolean selfChange) {
++                refreshStatusBarHeight();
++            }
++        };
++        mContext.getContentResolver().registerContentObserver(
++                Settings.Global.getUriFor("status_bar_padding_top_px"), false, mOffsetObserver);
+         mDisplayId = displayId;
+         mWindowManager = windowManager;
+         mStatusBarConfigurationController = statusBarConfigurationController;
+diff --git a/services/core/java/com/android/server/policy/DeviceStateProviderImpl.java b/services/core/java/com/android/server/policy/DeviceStateProviderImpl.java
+index a755ee1cd0fe..6558765a6f50 100644
+--- a/services/core/java/com/android/server/policy/DeviceStateProviderImpl.java
++++ b/services/core/java/com/android/server/policy/DeviceStateProviderImpl.java
+@@ -508,6 +508,20 @@ public final class DeviceStateProviderImpl implements DeviceStateProvider,
+             inputManager.registerLidSwitchCallback(this);
+         }
+ 
++        // Avium beyond1q v132bw29: guard the SensorManager fetch. On this
++        // candybar device sensorsToListenTo is always empty (no fold
++        // postures configured), but the unconditional
++        // getSystemService(SensorManager) still constructs
++        // SystemSensorManager, whose nativeCreate blocks on SensorService's
++        // sensor list - and SensorService waits for ISensors/default, which
++        // registers on the vendor servicemanager with no system-side bridge
++        // in this bp4a. The stall hits the system_server MAIN thread
++        // (DeviceStateManagerService ctor) for the full 185 s watchdog
++        // timeout, killing boot in a loop. Skip when there is nothing to
++        // listen to.
++        if (sensorsToListenTo.isEmpty()) {
++            return;
++        }
+         final SensorManager sensorManager = mContext.getSystemService(SensorManager.class);
+         for (int i = 0; i < sensorsToListenTo.size(); i++) {
+             Sensor sensor = sensorsToListenTo.valueAt(i);
+diff --git a/services/core/java/com/android/server/wm/WindowOrientationListener.java b/services/core/java/com/android/server/wm/WindowOrientationListener.java
+index d26616edfb44..c44c109c7543 100644
+--- a/services/core/java/com/android/server/wm/WindowOrientationListener.java
++++ b/services/core/java/com/android/server/wm/WindowOrientationListener.java
+@@ -132,6 +132,22 @@ public abstract class WindowOrientationListener {
+          *  this type.
+          */
+         for (Sensor s : l) {
++            // Avium beyond1q: skip Samsung's "Screen Orientation Sensor".
++            //
++            // OrientationSensorJudge consumes values[0] directly as a
++            // Surface.ROTATION_* constant (0=0deg, 1=90, 2=180, 3=270). The
++            // Samsung sensor HAL (auto_rotation in sensors.ssc.so) reports its
++            // own encoding instead: holding the device upright yields 3, so the
++            // framework rotates the screen 270 degrees while the phone is in its
++            // natural portrait orientation. The same HAL also emits -1 for
++            // "undetermined", which the framework discards.
++            //
++            // Falling through to the accelerometer path (AccelSensorJudge, the
++            // AOSP-standard implementation) gives correct rotation, because the
++            // raw accelerometer axes are already correct on this board.
++            if ("Screen Orientation Sensor".equals(s.getName())) {
++                continue;
++            }
+             if (s.isWakeUpSensor()) {
+                 wakeUpDeviceOrientationSensor = s;
+             } else {
+@@ -694,6 +710,26 @@ public abstract class WindowOrientationListener {
+                 float y = event.values[ACCELEROMETER_DATA_Y];
+                 float z = event.values[ACCELEROMETER_DATA_Z];
+ 
++                // Avium beyond1q: remap the accelerometer axes.
++                //
++                // The SSC sensor stack on this board reports gravity along -X when the
++                // device is held upright in its natural portrait orientation, and Y stays
++                // at 0 (measured: x=-9.69, y=0.05, z=1.28 upright; x=-7.34, y=0.12,
++                // z=6.47 at ~48 degrees). AOSP expects y=+9.8 upright, so the framework
++                // concluded the phone was on its side and proposed ROTATION_270 while the
++                // phone was upright -- the status bar ended up on the left edge.
++                //
++                // Apply the 90-degree rotation that maps the sensor frame onto the screen
++                // frame: device_x = sensor_y, device_y = -sensor_x. The determinant stays
++                // +1, so this is a pure rotation (no mirroring), and z is unchanged
++                // because the sensor's z already points out of the screen.
++                {
++                    final float rawX = x;
++                    final float rawY = y;
++                    x = rawY;
++                    y = -rawX;
++                }
++
+                 if (LOG) {
+                     Slog.v(TAG, "Raw acceleration vector: "
+                             + "x=" + x + ", y=" + y + ", z=" + z
+diff --git a/services/core/jni/com_android_server_soundtrigger_middleware_ExternalCaptureStateTracker.cpp b/services/core/jni/com_android_server_soundtrigger_middleware_ExternalCaptureStateTracker.cpp
+index ae6cb187fa47..40d62c83ee3d 100644
+--- a/services/core/jni/com_android_server_soundtrigger_middleware_ExternalCaptureStateTracker.cpp
++++ b/services/core/jni/com_android_server_soundtrigger_middleware_ExternalCaptureStateTracker.cpp
+@@ -72,7 +72,20 @@ void connect(JNIEnv* env, jobject obj) {
+     sp<AudioSystem::CaptureStateListener> listener(new Listener(env, obj));
+     status_t status =
+         AudioSystem::registerSoundTriggerCaptureStateListener(listener);
+-    LOG_ALWAYS_FATAL_IF(status != NO_ERROR);
++    // Avium beyond1q v132bw43: do NOT abort when the SoundTrigger HAL is
++    // unavailable. On this build the audio HAL is degraded to an empty
++    // module set (see the avium audio takeover + empty
++    // audio_policy_configuration.xml), so there is no soundtrigger engine and
++    // registerSoundTriggerCaptureStateListener returns an error. The original
++    // LOG_ALWAYS_FATAL_IF killed system_server (SIGABRT) on every boot via
++    // this handler-thread Runnable, looping the server generations and
++    // blocking boot_completed. Voice-trigger/hotword capture-state tracking is
++    // a non-boot-critical feature; log and continue instead.
++    if (status != NO_ERROR) {
++        ALOGW("SoundTrigger capture state listener unavailable (status=%d); "
++              "continuing without it", status);
++        return;
++    }
+ }
+ 
+ const JNINativeMethod gMethods[] = {

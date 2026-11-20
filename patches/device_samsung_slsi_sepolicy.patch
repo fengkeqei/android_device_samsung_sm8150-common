@@ -1,0 +1,97 @@
+diff --git a/common/vendor/file.te b/common/vendor/file.te
+index 725fd52..c6a334c 100644
+--- a/common/vendor/file.te
++++ b/common/vendor/file.te
+@@ -5,7 +5,6 @@ type biometrics_vendor_data_file, file_type, data_file_type;
+ type conn_vendor_data_file, file_type, data_file_type;
+ type data_eden_file, file_type, data_file_type;
+ type data_eden_gpu_file, file_type, data_file_type;
+-type display_vendor_data_file, file_type, data_file_type;
+ type gps_vendor_data_file, file_type, data_file_type;
+ type log_vendor_data_file, file_type, data_file_type;
+ type log_cbd_vendor_data_file, file_type, data_file_type;
+@@ -44,10 +43,8 @@ type sysfs_fingerprint, sysfs_type, r_fs_type, fs_type;
+ type sysfs_iio, sysfs_type, r_fs_type, fs_type;
+ type sysfs_input, sysfs_type, r_fs_type, fs_type;
+ type sysfs_sec_gps, sysfs_type, r_fs_type, fs_type;
+-type sysfs_sec_key, sysfs_type, r_fs_type, fs_type;
+ type sysfs_sec_sensors, sysfs_type, r_fs_type, fs_type;
+ type sysfs_sec_switch, sysfs_type, r_fs_type, fs_type;
+-type sysfs_sec_touchscreen, sysfs_type, r_fs_type, fs_type;
+ type sysfs_sim, sysfs_type, r_fs_type, fs_type;
+ type sysfs_sensors, sysfs_type, r_fs_type, fs_type;
+ type sysfs_spen, sysfs_type, rw_fs_type, fs_type;
+diff --git a/common/vendor/file_contexts b/common/vendor/file_contexts
+index ea20ad7..131a76f 100644
+--- a/common/vendor/file_contexts
++++ b/common/vendor/file_contexts
+@@ -5,7 +5,6 @@
+ /data/vendor/conn(/.*)?                      u:object_r:conn_vendor_data_file:s0
+ /data/vendor/eden(/.*)?                      u:object_r:data_eden_file:s0
+ /data/vendor/eden/gpu(/.*)?                  u:object_r:data_eden_gpu_file:s0
+-/data/vendor/display(/.*)?                   u:object_r:display_vendor_data_file:s0
+ /data/vendor/gps(/.*)?                       u:object_r:gps_vendor_data_file:s0
+ /data/vendor/wifi(/.*)?                      u:object_r:wifi_vendor_data_file:s0
+ /data/vendor/log(/.*)?                       u:object_r:log_vendor_data_file:s0
+@@ -74,7 +73,6 @@
+ /dev/ttyBCM[0-9]*                            u:object_r:bbd_device:s0
+ 
+ ### NFC
+-/dev/sec-nfc                                 u:object_r:nfc_device:s0
+ 
+ ### NPU
+ /dev/vertex10                                u:object_r:npu_device:s0
+diff --git a/common/vendor/genfs_contexts b/common/vendor/genfs_contexts
+index 5023cf7..758798d 100644
+--- a/common/vendor/genfs_contexts
++++ b/common/vendor/genfs_contexts
+@@ -19,7 +19,6 @@ genfscon sysfs /class/sec/sensors                                         u:obje
+ genfscon sysfs /class/sec/tsp                                             u:object_r:sysfs_sec_touchscreen:s0
+ genfscon sysfs /class/sensor_event                                        u:object_r:sysfs_sensors:s0
+ genfscon sysfs /class/sensors                                             u:object_r:sysfs_sensors:s0
+-genfscon sysfs /class/thermal                                             u:object_r:sysfs_thermal:s0
+ genfscon sysfs /class/timed_output/vibrator/intensity                     u:object_r:sysfs_vibrator:s0
+ genfscon sysfs /class/timed_output/vibrator/multi_freq                    u:object_r:sysfs_vibrator:s0
+ 
+@@ -59,7 +58,6 @@ genfscon sysfs /devices/virtual/sensors/ssp_sensor/shub_file              u:obje
+ genfscon sysfs /devices/virtual/sensors/ssp_sensor/ssp_flush              u:object_r:sysfs_sensors_writable:s0
+ genfscon sysfs /devices/virtual/sec/switch                                u:object_r:sysfs_sec_switch:s0
+ genfscon sysfs /devices/virtual/sec/switch/afc_disable                    u:object_r:sysfs_sec_switch_writable:s0
+-genfscon sysfs /devices/virtual/thermal                                   u:object_r:sysfs_thermal:s0
+ genfscon sysfs /devices/virtual/timed_output/vibrator/cp_trigger_index    u:object_r:sysfs_vibrator:s0
+ genfscon sysfs /devices/virtual/timed_output/vibrator/intensity           u:object_r:sysfs_vibrator:s0
+ genfscon sysfs /devices/virtual/timed_output/vibrator/multi_freq          u:object_r:sysfs_vibrator:s0
+@@ -78,3 +76,7 @@ genfscon sysfs /wifi                                                      u:obje
+ genfscon sysfs /wifi/cid                                                  u:object_r:sysfs_wifi_writable:s0
+ genfscon sysfs /wifi/mac_addr                                             u:object_r:sysfs_wifi_writable:s0
+ genfscon sysfs /wifi/memdump                                              u:object_r:sysfs_wifi_writable:s0
++
++# Avium v132bw12: samsung battery sysfs under the soc bus node (health HAL reads
++# it via the coredomain hal_health_server; AOSP grants r_dir_file on sysfs_batteryinfo).
++genfscon sysfs /devices/platform/soc/soc:battery(/.*)?                    u:object_r:sysfs_batteryinfo:s0
+diff --git a/common/vendor/hal_tetheroffload_default.te b/common/vendor/hal_tetheroffload_default.te
+index 0c0cccf..51a7ccd 100644
+--- a/common/vendor/hal_tetheroffload_default.te
++++ b/common/vendor/hal_tetheroffload_default.te
+@@ -14,6 +14,8 @@ allow hal_tetheroffload_default netd:unix_dgram_socket create_socket_perms;
+ allow hal_tetheroffload_default netd:unix_dgram_socket {read write};
+ 
+ # Register to hwbinder service
+-add_hwservice(hal_tetheroffload_default, hal_tetheroffload_hwservice)
++# A16: HIDL tetheroffload hwservice add is neverallowed (AIDL + apex now);
++# this build uses com.android.hardware.tetheroffload (AIDL example apex)
++# add_hwservice(hal_tetheroffload_default, hal_tetheroffload_hwservice)
+ hwbinder_use(hal_tetheroffload_default)
+ get_prop(hal_tetheroffload_default, hwservicemanager_prop)
+diff --git a/common/vendor/property.te b/common/vendor/property.te
+index 5599ce2..e6e67c9 100644
+--- a/common/vendor/property.te
++++ b/common/vendor/property.te
+@@ -2,7 +2,6 @@
+ 
+ vendor_internal_prop(vendor_cbd_prop)
+ vendor_restricted_prop(vendor_hwc_prop)
+-vendor_internal_prop(vendor_radio_prop)
+ vendor_internal_prop(vendor_gnss_prop)
+ vendor_internal_prop(vendor_thermal_prop)
+ vendor_internal_prop(vendor_vaultkeeper_prop)

@@ -1,0 +1,40 @@
+PRODUCT_PACKAGES += \
+    avium_stock_lib64_android_hardware_common_V1_ndk_platform_so \
+    avium_stock_lib64_android_hardware_light_V1_ndk_platform_so \
+    avium_stock_lib64_android_hardware_power_V1_ndk_platform_so \
+    avium_stock_lib64_android_hardware_vibrator_1_0_so avium_stock_lib64_android_hardware_vibrator_1_1_so \
+    avium_stock_lib64_android_hardware_vibrator_1_2_so avium_stock_lib64_android_hardware_vibrator_1_3_so \
+    avium_stock_lib64_libSurfaceFlingerProp_so avium_stock_lib64_libandroid_net_so \
+    avium_stock_lib64_libapexsupport_so avium_stock_lib64_libbinder_ndk_so avium_stock_lib64_libegl_flags_so \
+    avium_stock_lib64_libgraphicsenv_so avium_stock_lib64_libipanat_so avium_stock_lib64_liblog_so \
+    avium_stock_lib64_libnativebridge_lazy_so avium_stock_lib64_libnativeloader_lazy_so \
+    avium_stock_lib64_libnativewindow_so avium_stock_lib64_libnetd_client_so \
+    avium_stock_lib64_libpackagelistparser_so avium_stock_lib64_libs8_so avium_stock_lib64_libselinux_so \
+    avium_stock_lib64_libsync_so avium_stock_lib64_libvndksupport_so \
+    avium_stock_lib64_vendor_samsung_hardware_snap_1_2_impl_so \
+    avium_stock_lib_android_hardware_common_V1_ndk_platform_so \
+    avium_stock_lib_android_hardware_vibrator_1_0_so avium_stock_lib_android_hardware_vibrator_1_1_so \
+    avium_stock_lib_android_hardware_vibrator_1_2_so avium_stock_lib_android_hardware_vibrator_1_3_so \
+    avium_stock_lib_libSurfaceFlingerProp_so avium_stock_lib_libandroid_net_so \
+    avium_stock_lib_libapexsupport_so avium_stock_lib_libbinder_ndk_so avium_stock_lib_libegl_flags_so \
+    avium_stock_lib_libgraphicsenv_so avium_stock_lib_liblog_so avium_stock_lib_libnativebridge_lazy_so \
+    avium_stock_lib_libnativeloader_lazy_so avium_stock_lib_libnativewindow_so \
+    avium_stock_lib_libnetd_client_so avium_stock_lib_libpackagelistparser_so avium_stock_lib_libselinux_so \
+    avium_stock_lib_libsync_so avium_stock_lib_libvndksupport_so avium_fw_CAMERA_ICP_elf \
+    avium_fw_bcmdhd_clm_blob avium_fw_bcmdhd_mfg_bin_b1 avium_fw_bcmdhd_mon_bin_b1 avium_fw_bcmdhd_sta_bin_b1 \
+    avium_fw_cs35l40_bot_dsp1_spk_prot_calib_bin avium_fw_cs35l40_bot_dsp1_spk_prot_bin \
+    avium_fw_cs35l40_bot_dsp1_spk_prot_wmfw avium_fw_cs35l40_rcv_dsp1_spk_prot_calib_bin \
+    avium_fw_cs35l40_rcv_dsp1_spk_prot_bin avium_fw_cs35l40_rcv_dsp1_spk_prot_wmfw avium_fw_dax_param_bin \
+    avium_fw_ipa_fws_b00 avium_fw_ipa_fws_b01 avium_fw_ipa_fws_b02 avium_fw_ipa_fws_b03 avium_fw_ipa_fws_b04 \
+    avium_fw_ipa_fws_elf avium_fw_ipa_fws_mdt avium_fw_ipa_uc_b00 avium_fw_ipa_uc_b01 avium_fw_ipa_uc_b02 \
+    avium_fw_ipa_uc_elf avium_fw_ipa_uc_mdt avium_fw_nvram_txt_1rh_es11_b0 avium_fw_nvram_txt_1rh_es12_b0 \
+    avium_fw_nvram_txt_1rh_es13_b0 avium_fw_nvram_txt_1rh_es32_b0 avium_fw_nvram_txt_1rh_es41_b1 \
+    avium_fw_nvram_txt_1rh_es42_b1 avium_fw_nvram_txt_1rh_es43_b1 avium_fw_nvram_txt_CS01_semco_b1 \
+    avium_fw_nvram_txt_ES00_semco_b0 avium_fw_nvram_txt_ES01_semco_b0 avium_fw_nvram_txt_ES02_semco_b0 \
+    avium_fw_nvram_txt_ES03_semco_b0 avium_fw_nfc_libpn553_fw_so avium_gk_gatekeeper_default \
+    avium_gk_libcrypto_gk avium_soundtrigger_rc avium_keep_firmware_mnt avium_keep_firmware_modem \
+    avium_keep_dsp avium_frag_android_hardware_bluetooth_1_0_service_xml
+
+# All payloads are Make prebuilts listed above; there are no
+# PRODUCT_COPY_FILES here (Soong already installs the allocator and
+# gatekeeper rcs, and Kati rejects VINTF metadata in copy files).

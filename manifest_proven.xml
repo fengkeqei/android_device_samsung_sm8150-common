@@ -84,6 +84,14 @@
         <transport>hwbinder</transport>
         <fqname>@1.2::INfc/default</fqname>
     </hal>
+    <!-- The Samsung rild registers @1.4::IRadio only (libril_sem.so has no
+         1.5/1.6 refs); radio-library.compat is not part of this build, so the
+         AIDL->HIDL compat adapter that would call V1_5::IRadio::getService()
+         is absent and there is nothing to declare for it. Do NOT add @1.5 /
+         @1.6 fqnames here: libvintf treats same-interface different-minor
+         (1.4/1.5/1.6) in one <hal> as "Duplicated major version" and refuses
+         to assemble the whole device manifest (vendorimage fails). ISap@1.2
+         coexists fine because it is a different interface. -->
     <hal format="hidl" override="true">
         <name>android.hardware.radio</name>
         <transport>hwbinder</transport>
@@ -130,6 +138,139 @@
         <name>android.hardware.vibrator</name>
         <transport>hwbinder</transport>
         <fqname>@1.3::IVibrator/default</fqname>
+    </hal>
+    <!-- v127: AIDL vibrator HAL (android.hardware.vibrator-service.example).
+         The HIDL entry above is still declared and served by the Samsung blob
+         (sec-vibrator-2-2), but Android 16's framework only talks AIDL:
+         HalNativeHandler.java imports android.hardware.vibrator.IVibrator and
+         IVibratorManager. Without these two blocks servicemanager rejects the
+         AIDL service registration and it aborts:
+           Could not find android.hardware.vibrator.IVibrator/default in the
+           VINTF manifest. No alternative instances declared in VINTF.
+           Check failed: status == STATUS_OK (status=-3, STATUS_OK=0)
+         NOTE: the version here must be 4 to match the -V4-ndk the service
+         links. Declaring it in a separate /vendor/etc/vintf/manifest/ fragment
+         does NOT work: soong rewrites that fragment's <version> to the highest
+         *frozen* aidl version (3), and libvintf then refuses the whole device
+         manifest with
+           Conflicting FqInstance: IVibrator/default (@4) ... vs (@3) ...
+           NULL VINTF MANIFEST!: device
+         so the declaration has to live here, in the main manifest. -->
+    <hal format="aidl">
+        <name>android.hardware.vibrator</name>
+        <version>4</version>
+        <fqname>IVibrator/default</fqname>
+    </hal>
+    <hal format="aidl">
+        <name>android.hardware.vibrator</name>
+        <version>4</version>
+        <fqname>IVibratorManager/default</fqname>
+    </hal>
+    <!-- v127: sensor HAL. Samsung's android.hardware.sensors@2.0-service.multihal
+         is packaged from the blob, and it loads every sensor successfully:
+             I SensorsMultiHal: Loaded sensor: ...
+         but registration is rejected without a manifest entry:
+             E android.hardware.sensors@2.0-service.multihal:
+               Failed to register Sensors HAL instance
+         This shell is HIDL 2.0 (not AIDL) because that is what the Samsung HAL
+         implements. Declared here rather than as a vintf_fragment so it cannot
+         collide with the copy of this fragment under /vendor/etc/vintf/manifest. -->
+    <hal format="hidl">
+        <name>android.hardware.sensors</name>
+        <transport>hwbinder</transport>
+        <fqname>@2.0::ISensors/default</fqname>
+    </hal>
+
+    <!-- v128: AIDL radio HAL instances, served by
+         android.hardware.radio-service.compat (AOSP's HIDL->AIDL adapter for
+         Samsung's HIDL-only rild).
+
+         The adapter's own radio-compat.xml only declares IRadioConfig/default
+         and says so explicitly:
+             Instances other than config are configured per-device, depending
+             on the slot count (framework currently supports slot1, slot2 and
+             slot3) and Radio HALs device wishes to provide.
+         beyond1q is a dual-SIM device, so slot1 and slot2 are declared for
+         every interface. Without these the framework logs
+             Could not find android.hardware.radio.modem.IRadioModem/slot1
+             in the VINTF manifest. No alternative instances declared in VINTF.
+         and Telephony never binds to the radio HAL. -->
+
+    <hal format="aidl">
+        <name>android.hardware.radio.config</name>
+        <fqname>IRadioConfig/default</fqname>
+    </hal>
+    <hal format="aidl">
+        <name>android.hardware.radio.data</name>
+        <fqname>IRadioData/default</fqname>
+    </hal>
+    <hal format="aidl">
+        <name>android.hardware.radio.data</name>
+        <fqname>IRadioData/slot1</fqname>
+    </hal>
+    <hal format="aidl">
+        <name>android.hardware.radio.data</name>
+        <fqname>IRadioData/slot2</fqname>
+    </hal>
+    <hal format="aidl">
+        <name>android.hardware.radio.messaging</name>
+        <fqname>IRadioMessaging/default</fqname>
+    </hal>
+    <hal format="aidl">
+        <name>android.hardware.radio.messaging</name>
+        <fqname>IRadioMessaging/slot1</fqname>
+    </hal>
+    <hal format="aidl">
+        <name>android.hardware.radio.messaging</name>
+        <fqname>IRadioMessaging/slot2</fqname>
+    </hal>
+    <hal format="aidl">
+        <name>android.hardware.radio.modem</name>
+        <fqname>IRadioModem/default</fqname>
+    </hal>
+    <hal format="aidl">
+        <name>android.hardware.radio.modem</name>
+        <fqname>IRadioModem/slot1</fqname>
+    </hal>
+    <hal format="aidl">
+        <name>android.hardware.radio.modem</name>
+        <fqname>IRadioModem/slot2</fqname>
+    </hal>
+    <hal format="aidl">
+        <name>android.hardware.radio.network</name>
+        <fqname>IRadioNetwork/default</fqname>
+    </hal>
+    <hal format="aidl">
+        <name>android.hardware.radio.network</name>
+        <fqname>IRadioNetwork/slot1</fqname>
+    </hal>
+    <hal format="aidl">
+        <name>android.hardware.radio.network</name>
+        <fqname>IRadioNetwork/slot2</fqname>
+    </hal>
+    <hal format="aidl">
+        <name>android.hardware.radio.sim</name>
+        <fqname>IRadioSim/default</fqname>
+    </hal>
+    <hal format="aidl">
+        <name>android.hardware.radio.sim</name>
+        <fqname>IRadioSim/slot1</fqname>
+    </hal>
+    <hal format="aidl">
+        <name>android.hardware.radio.sim</name>
+        <fqname>IRadioSim/slot2</fqname>
+    </hal>
+    <hal format="aidl">
+        <name>android.hardware.radio.voice</name>
+        <fqname>IRadioVoice/default</fqname>
+    </hal>
+    <hal format="aidl">
+        <name>android.hardware.radio.voice</name>
+        <fqname>IRadioVoice/slot1</fqname>
+    </hal>
+    <hal format="aidl">
+        <name>android.hardware.radio.voice</name>
+        <fqname>IRadioVoice/slot2</fqname>
     </hal>
     <hal format="hidl" override="true">
         <name>com.qualcomm.qti.dpm.api</name>

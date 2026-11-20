@@ -1,0 +1,656 @@
+diff --git a/contexts/file_contexts_test_data b/contexts/file_contexts_test_data
+index 59745708d..b0fb674bd 100644
+--- a/contexts/file_contexts_test_data
++++ b/contexts/file_contexts_test_data
+@@ -1101,6 +1101,8 @@
+ /data/misc_ce/99/wifi/test                                        wifi_data_file
+ /data/misc/wifi/mainline_supplicant                               mainline_supplicant_data_file
+ /data/misc/wifi/mainline_supplicant/sockets                       mainline_supplicant_data_file
++/data/misc/wifi/avium_supplicant                                  avium_supplicant_data_file
++/data/misc/wifi/avium_supplicant/sockets                          avium_supplicant_data_file
+ /data/misc/wifi/sockets                                           wpa_socket
+ /data/misc/wifi/sockets/test                                      wpa_socket
+ /data/misc/wifi/sockets/wpa_ctrl_test                             system_wpa_socket
+@@ -1365,3 +1367,15 @@
+ /mnt/pre_reboot_dexopt                                            pre_reboot_dexopt_file
+ 
+ /second_stage_resources/overlay_remounter                         overlay_remounter_exec
++# Avium beyond1q: system-partition HAL twins
++# Avium beyond1q: system-partition HAL twins (literal paths; checkfc -t matches
++# these against the regexes in private/file_contexts)
++/system/bin/hw/android.hardware.health-service.avium                avium_health_exec
++/system/bin/hw/android.hardware.power-service.avium                 avium_power_exec
++/system/bin/hw/android.hardware.light-service.lineage.avium         avium_light_exec
++/system/bin/hw/android.hardware.security.keymint-service.avium      avium_keymint_exec
++/system/bin/hw/wpa_supplicant_avium                                 avium_supplicant_exec
++/system/bin/hw/android.hardware.audio.service-aidl.avium            avium_audio_exec
++/system/bin/hw/android.hardware.audio.effect.service-aidl.avium     avium_audioeffect_exec
++/system/bin/hw/android.hardware.radio-service.compat.avium          avium_radio_exec
++/system/bin/hw/android.hardware.vibrator-service.avium              avium_vibrator_exec
+diff --git a/prebuilts/api/202404/202404_general_sepolicy.conf b/prebuilts/api/202404/202404_general_sepolicy.conf
+index c439085e4..b0180c97e 100644
+--- a/prebuilts/api/202404/202404_general_sepolicy.conf
++++ b/prebuilts/api/202404/202404_general_sepolicy.conf
+@@ -995,7 +995,7 @@ neverallow { domain -hal_evs_server -evsmanagerd } hal_evs_hwservice:hwservice_m
+   neverallow { domain -hal_graphics_composer_server } hal_graphics_composer_service:service_manager add;
+ # SUPPRESSED_BY_USERDEBUG_OR_ENG -- this marker is used by CTS -- do not modify
+   neverallow { domain -hal_health_server } hal_health_hwservice:hwservice_manager add;
+-  neverallow { domain -hal_health_server } hal_health_service:service_manager add;
++  neverallow { domain -hal_health_server -avium_health } hal_health_service:service_manager add;
+ # SUPPRESSED_BY_USERDEBUG_OR_ENG -- this marker is used by CTS -- do not modify
+   neverallow { domain -hal_health_storage_server } hal_health_storage_hwservice:hwservice_manager add;
+   neverallow { domain -hal_health_storage_server } hal_health_storage_service:service_manager add;
+diff --git a/prebuilts/api/202504/202504_general_sepolicy.conf b/prebuilts/api/202504/202504_general_sepolicy.conf
+index e50a477c6..a7faa8163 100644
+--- a/prebuilts/api/202504/202504_general_sepolicy.conf
++++ b/prebuilts/api/202504/202504_general_sepolicy.conf
+@@ -3470,7 +3470,7 @@ neverallow { domain -hal_evs_server -evsmanagerd } hal_evs_hwservice:hwservice_m
+   neverallow { domain -hal_graphics_composer_server } hal_graphics_composer_service:service_manager add;
+ # SUPPRESSED_BY_USERDEBUG_OR_ENG -- this marker is used by CTS -- do not modify
+   neverallow { domain -hal_health_server } hal_health_hwservice:hwservice_manager add;
+-  neverallow { domain -hal_health_server } hal_health_service:service_manager add;
++  neverallow { domain -hal_health_server -avium_health } hal_health_service:service_manager add;
+ # SUPPRESSED_BY_USERDEBUG_OR_ENG -- this marker is used by CTS -- do not modify
+   neverallow { domain -hal_health_storage_server } hal_health_storage_hwservice:hwservice_manager add;
+   neverallow { domain -hal_health_storage_server } hal_health_storage_service:service_manager add;
+diff --git a/private/coredomain.te b/private/coredomain.te
+index 2163c5141..e73e9dd41 100644
+--- a/private/coredomain.te
++++ b/private/coredomain.te
+@@ -45,6 +45,34 @@ neverallow {
+     -apexd
+     -ueventd
+     -vold
++
++    # Avium beyond1q: avium_light is the system-domain twin of the light HAL
++    # (no vendor-AIDL bridge on this bp4a base, so it must register on
++    # /dev/binder as a coredomain). It still drives the same /sys/class/leds
++    # nodes as the vendor light HAL, so it needs the hal_light sysfs_leds
++    # access that this neverallow would otherwise strip.
++    -avium_light
++
++    # Avium beyond1q: avium_supplicant is the system-domain twin of
++    # wpa_supplicant (same no-vendor-AIDL-bridge reason); it inherits the
++    # hal_wifi_supplicant sysfs_type read access, which includes sysfs_leds.
++    -avium_supplicant
++
++    # Avium beyond1q: avium_radio (system-domain radio compat bridge) inherits
++    # the hal_telephony_server sysfs_type read access, which includes sysfs_leds.
++    -avium_radio
++
++    # Avium beyond1q: avium_vibrator (system-domain vibrator HAL) carries the
++    # hal_vibrator attribute, and the QC sepolicy_vndr hal_vibrator.te grants
++    # hal_vibrator r_dir_file() on sysfs_leds -- the read lands here and this
++    # neverallow would strip it.
++    -avium_vibrator
++
++    # Avium beyond1q: avium_health reads the battery tree through the shared
++    # sysfs_type attribute (Samsung labels it sysfs_battery, which plat cannot
++    # name). sysfs_leds is part of sysfs_type, so the blanket grant trips this
++    # neverallow unless the domain is listed here.
++    -avium_health
+ } sysfs_leds:file *;
+ ')
+ 
+@@ -145,6 +173,10 @@ full_treble_only(`
+     coredomain
+     -init
+     -vold
++
++    # Avium beyond1q: avium_audio inherits r_dir_file(hal_audio, proc) via the
++    # hal_audio attribute (proc asound enumeration for the legacy HAL).
++    -avium_audio
+   } proc:file no_rw_file_perms;
+ 
+   # /sys
+@@ -155,6 +187,15 @@ full_treble_only(`
+     -ueventd
+     is_flag_enabled(RELEASE_AVF_ENABLE_DEVICE_ASSIGNMENT, `-vfio_handler')
+     -vold
++
++    # Avium beyond1q: avium_supplicant (system-domain wpa_supplicant) needs the
++    # hal_wifi_supplicant sysfs_type read access for its wifi driver knobs.
++    -avium_supplicant
++
++    # Avium beyond1q: avium_health (system-domain AIDL health HAL) reads the
++    # battery tree, which Samsung labels sysfs_battery - reachable from plat
++    # only through the shared sysfs_type attribute.
++    -avium_health
+   } sysfs:file no_rw_file_perms;
+ 
+   # /dev
+diff --git a/private/domain.te b/private/domain.te
+index ce600b855..83be8f509 100644
+--- a/private/domain.te
++++ b/private/domain.te
+@@ -970,6 +970,13 @@ full_treble_only(`
+     -shell
+     userdebug_or_eng(`-su')
+     -ueventd # uevent is granted create for this device, but we still neverallow I/O below
++
++    # Avium beyond1q: avium_audio / avium_audioeffect inherit vndbinder_use
++    # (hal_audio) via the hal_audio attribute; they do not use vndbinder at
++    # runtime (they register on /dev/binder) but the inherited allow trips this
++    # neverallow.
++    -avium_audio
++    -avium_audioeffect
+   } vndbinder_device:chr_file rw_file_perms;
+ ')
+ full_treble_only(`
+@@ -987,6 +994,14 @@ full_treble_only(`
+     coredomain
+     -shell
+     userdebug_or_eng(`-su')
++
++    # Avium beyond1q: avium_audio / avium_audioeffect carry the hal_audio
++    # attribute, and the QC sepolicy_vndr hal_audio_default.te grants
++    # hal_audio binder access to vndservicemanager. The avium twins do not use
++    # vendor services at runtime (they register on /dev/binder), but the
++    # inherited allow trips this neverallow.
++    -avium_audio
++    -avium_audioeffect
+   } vndservicemanager:binder *;
+ ')
+ 
+@@ -1004,6 +1019,13 @@ full_treble_only(`
+     coredomain
+     -init
+     -adbd
++
++    # Avium beyond1q: avium_supplicant carries the hal_wifi_supplicant
++    # attribute; QC sepolicy_vndr grants hal_wifi_supplicant sendto() to
++    # vendor fstman/wigighalsvc sockets. The avium twin does not talk to those
++    # daemons (it registers on /dev/binder), but the inherited allow trips
++    # this neverallow.
++    -avium_supplicant
+   }, {
+     domain
+     -coredomain
+@@ -1637,6 +1659,11 @@ full_treble_only(`
+     -charger
+     # TODO(b/110891300): remove this exception
+     -incidentd
++    # Avium beyond1q: system-domain health HAL (v132bw18)
++    -avium_health
++    # Avium beyond1q: system-domain wpa_supplicant inherits hal_wifi_supplicant
++    # sysfs_type read access, which spans sysfs_batteryinfo.
++    -avium_supplicant
+   } sysfs_batteryinfo:file { open read };
+ ')
+ 
+@@ -2130,6 +2157,13 @@ full_treble_only(`
+     -ueventd
+     userdebug_or_eng(`-overlay_remounter')
+     -prefetch
++
++    # Avium beyond1q: avium_audio dlopen()s the vendor legacy audio HAL
++    # (/vendor/lib/hw/audio.primary.msmnile.so) to reach the Samsung
++    # mixer_paths_tavil -> ADSP -> CS35L41 route. Without it the HAL falls back
++    # to the AOSP ALSA backend, which writes pcm0p (not routed to the speakers)
++    # and playback is silent.
++    -avium_audio
+   } vendor_file:file { no_w_file_perms no_x_file_perms open };
+ ')
+ 
+@@ -2177,6 +2211,15 @@ full_treble_only(`
+     -vold # loads incremental fs driver
+     -prefetch
+     userdebug_or_eng(`-overlay_remounter')
++
++    # Avium beyond1q: avium_audio is the system-domain twin of the audio HAL
++    # (no vendor-AIDL bridge on this bp4a base, so it must register on
++    # /dev/binder as a coredomain). It dlopen()s the vendor legacy audio HAL
++    # /vendor/lib/hw/audio.primary.msmnile.so to reach the Samsung routing
++    # (mixer_paths_tavil -> ADSP -> CS35L41). Without it the HAL falls back to
++    # the AOSP ALSA backend, which writes pcm0p that is not routed to the
++    # speakers, so playback is silent.
++    -avium_audio
+   } {
+     vendor_file_type
+     -same_process_hal_file
+diff --git a/private/file.te b/private/file.te
+index b832da44c..18d3b3c96 100644
+--- a/private/file.te
++++ b/private/file.te
+@@ -283,3 +283,25 @@ until_board_api(202604, `type sysfs_typec, fs_type, sysfs_type;')
+ until_board_api(202604, `type sysfs_usb_pd, fs_type, sysfs_type;')
+ 
+ type zygote_next_socket, file_type, coredomain_socket;
++
++# Avium beyond1q v132bw12: exec label for the system-domain health HAL (avium).
++type avium_health_exec, exec_type, system_file_type, file_type;
++# Avium beyond1q v132bw2x: exec labels for the other system-domain avium HALs
++# (power / light / keymint). Same pattern as health: these are SYSTEM variants
++# (no vendor-AIDL bridge on this bp4a base), so they register on /dev/binder and
++# need real coredomain hal_server domains instead of bare init.
++type avium_power_exec, exec_type, system_file_type, file_type;
++type avium_light_exec, exec_type, system_file_type, file_type;
++type avium_keymint_exec, exec_type, system_file_type, file_type;
++# Avium beyond1q: system-domain wpa_supplicant (AIDL ISupplicant registers on
++# /dev/binder; no vendor-AIDL bridge on this bp4a base).
++type avium_supplicant_exec, exec_type, system_file_type, file_type;
++# Avium beyond1q: exec labels for the system-domain audio HALs (core audio +
++# effects). Same pattern as the other avium system twins: they register on
++# /dev/binder and need real coredomain hal_server domains instead of bare init.
++type avium_audio_exec, exec_type, system_file_type, file_type;
++type avium_audioeffect_exec, exec_type, system_file_type, file_type;
++# Avium beyond1q: system-domain radio compat bridge exec label.
++type avium_radio_exec, exec_type, system_file_type, file_type;
++# Avium beyond1q: system-domain vibrator HAL exec label.
++type avium_vibrator_exec, exec_type, system_file_type, file_type;
+diff --git a/private/file_contexts b/private/file_contexts
+index bc79eebf7..fcccd5529 100644
+--- a/private/file_contexts
++++ b/private/file_contexts
+@@ -730,6 +730,8 @@
+ /data/misc/wifi(/.*)?           u:object_r:wifi_data_file:s0
+ /data/misc_ce/[0-9]+/wifi(/.*)? u:object_r:wifi_data_file:s0
+ /data/misc/wifi/mainline_supplicant(/.*)?  u:object_r:mainline_supplicant_data_file:s0
++# Avium beyond1q: state dir for the system-domain wpa_supplicant twin.
++/data/misc/wifi/avium_supplicant(/.*)?  u:object_r:avium_supplicant_data_file:s0
+ /data/misc/wifi/sockets(/.*)?   u:object_r:wpa_socket:s0
+ /data/misc/wifi/sockets/wpa_ctrl.*   u:object_r:system_wpa_socket:s0
+ /data/misc/vold(/.*)?           u:object_r:vold_data_file:s0
+@@ -970,3 +972,12 @@
+ #############################
+ # For overlays
+ /second_stage_resources/overlay_remounter u:object_r:overlay_remounter_exec:s0
++/system/bin/hw/android\.hardware\.health-service\.avium    u:object_r:avium_health_exec:s0
++/system/bin/hw/android\.hardware\.power-service\.avium    u:object_r:avium_power_exec:s0
++/system/bin/hw/android\.hardware\.light-service\.lineage\.avium    u:object_r:avium_light_exec:s0
++/system/bin/hw/android\.hardware\.security\.keymint-service\.avium    u:object_r:avium_keymint_exec:s0
++/system/bin/hw/wpa_supplicant_avium    u:object_r:avium_supplicant_exec:s0
++/system/bin/hw/android\.hardware\.audio\.service-aidl\.avium    u:object_r:avium_audio_exec:s0
++/system/bin/hw/android\.hardware\.audio\.effect\.service-aidl\.avium    u:object_r:avium_audioeffect_exec:s0
++/system/bin/hw/android\.hardware\.radio-service\.compat\.avium    u:object_r:avium_radio_exec:s0
++/system/bin/hw/android\.hardware\.vibrator-service\.avium    u:object_r:avium_vibrator_exec:s0
+diff --git a/private/hal_audio.te b/private/hal_audio.te
+index 237ffcd7c..c19c69311 100644
+--- a/private/hal_audio.te
++++ b/private/hal_audio.te
+@@ -9,7 +9,6 @@ allow hal_audio ion_device:chr_file r_file_perms;
+ 
+ binder_call(hal_audio_server, servicemanager)
+ 
+-r_dir_file(hal_audio, proc)
+ r_dir_file(hal_audio, proc_asound)
+ allow hal_audio_server audio_device:dir r_dir_perms;
+ allow hal_audio_server audio_device:chr_file rw_file_perms;
+@@ -29,7 +28,10 @@ allow hal_audio_server system_server_tmpfs:file { getattr map read };
+ allow hal_audio_server self:global_capability_class_set sys_nice;
+ 
+ # allow hal audio to use vnbinder
+-vndbinder_use(hal_audio)
++# Avium beyond1q: excluded for the system-domain twins (avium_audio /
++# avium_audioeffect): they register on /dev/binder, and granting vndbinder to
++# a coredomain trips the vndbinder_device neverallow in domain.te.
++vndbinder_use({ hal_audio -avium_audio -avium_audioeffect })
+ 
+ ###
+ ### neverallow rules
+@@ -44,3 +46,67 @@ neverallow { halserverdomain -hal_audio_server -hal_omx_server } audio_device:ch
+ get_prop(hal_audio, audio_config_prop)
+ get_prop(hal_audio, bluetooth_a2dp_offload_prop)
+ get_prop(hal_audio, bluetooth_audio_hal_prop)
++
++# Avium beyond1q: system-domain audio HAL twins (android.hardware.audio.
++# service-aidl.avium + android.hardware.audio.effect.service-aidl.avium,
++# labeled avium_audio_exec / avium_audioeffect_exec). No vendor-AIDL bridge on
++# this bp4a base, so they register on /dev/binder as coredomain hal_server
++# domains, like avium_health/avium_light/avium_power/avium_keymint.
++type avium_audio, domain;
++typeattribute avium_audio coredomain;
++hal_server_domain(avium_audio, hal_audio)
++init_daemon_domain(avium_audio)
++binder_use(avium_audio)
++
++type avium_audioeffect, domain;
++typeattribute avium_audioeffect coredomain;
++hal_server_domain(avium_audioeffect, hal_audio)
++init_daemon_domain(avium_audioeffect)
++binder_use(avium_audioeffect)
++
++# Avium beyond1q: avium_audio must load the vendor legacy audio HAL.
++#
++# StreamLegacy::getLegacyDevice() calls hw_get_module_by_class("audio",
++# "primary"), which dlopens /vendor/lib/hw/audio.primary.msmnile.so. That is a
++# vendor_file, and coredomain (where avium_audio lives) has no read access to
++# vendor_file by default, so the lookup fails with ENOENT:
++#   E AHAL_StreamLegacy: getLegacyDevice: hw_get_module_by_class(audio.primary) failed: -2
++#   avc: denied { getattr } path="/vendor/lib/hw/audio.primary.msmnile.so"
++#        scontext=u:r:avium_audio:s0 tcontext=u:object_r:vendor_file:s0
++# ModuleLegacy then falls back to the AOSP ALSA backend:
++#   W AHAL_ModuleLegacy: createOutputStream: FALLBACK to ALSA (isHalAvailable=0)
++# That backend opens pcm0p, which on this board is not routed to the CS35L41
++# speakers, so playback silently drops:
++#   W AHAL_StreamAlsa: outputIoThread[0]: Error writing into ALSA: -1
++# With these grants the Samsung route (mixer_paths_tavil -> ADSP -> CS35L41) is
++# used again, exactly as in BUILD_NOTES section 35.
++# No `execute`: coredomain must not execute vendor_file (domain.te neverallow),
++# and dlopen()ing a shared object only needs open/read/map.
++allow avium_audio vendor_file:dir r_dir_perms;
++allow avium_audio vendor_file:file { getattr open read map };
++allow avium_audio vendor_hal_file:dir r_dir_perms;
++allow avium_audio vendor_hal_file:file { getattr open read map };
++
++# The vendor audio HAL's transitive dependencies are labeled
++# same_process_hal_file (LLNDK-style / vendor HAL libs), not vendor_file:
++#   avc: denied { open } path="/vendor/lib/libbase.so"
++#        tcontext=u:object_r:same_process_hal_file:s0
++# Without it the dlopen chain aborts with
++#   vndksupport: Could not load /vendor/lib/hw/audio.primary.msmnile.so from
++#   sphal namespace: dlopen failed: library "libbase.so" not found
++# and ModuleLegacy falls back to ALSA (silent, unrouted pcm0p).
++# `execute` is required: the dynamic linker maps the last segment of each
++# dependency with PROT_EXEC, and without it every load fails with
++#   dlopen failed: couldn't map "/vendor/lib/libbase.so" segment 2:
++#   Permission denied
++# same_process_hal_file is the one vendor-side type coredomain may execute
++# (app.te and hal_graphics_allocator.te do the same), so the audio HAL's
++# dependency closure is labelled with it in the device file_contexts.
++allow avium_audio same_process_hal_file:file { getattr open read map execute };
++allow avium_audio same_process_hal_file:dir r_dir_perms;
++
++# CS35L41 speaker protection reads its factory calibration blob.
++#   avc: denied { open } path="/efs/cirrus/rdc_cal_r"
++#        tcontext=u:object_r:efs_file:s0
++allow avium_audio efs_file:dir r_dir_perms;
++allow avium_audio efs_file:file { getattr open read };
+diff --git a/private/hal_fingerprint.te b/private/hal_fingerprint.te
+index 3295cc7fb..2b18ce2c4 100644
+--- a/private/hal_fingerprint.te
++++ b/private/hal_fingerprint.te
+@@ -18,3 +18,4 @@ r_dir_file(hal_fingerprint, cgroup_v2)
+ r_dir_file({hal_fingerprint -coredomain}, sysfs)
+ 
+ 
++
+diff --git a/private/hal_health.te b/private/hal_health.te
+index 5d7aff5ba..ae2939001 100644
+--- a/private/hal_health.te
++++ b/private/hal_health.te
+@@ -28,6 +28,42 @@ allow hal_health_server kmsg_device:chr_file { getattr w_file_perms };
+ allow hal_health_server self:capability2 wake_alarm;
+ 
+ # Use bpf programs
+-allow hal_health_server fs_bpf_vendor:dir search;
+-allow hal_health_server fs_bpf_vendor:file read;
+-allow hal_health_server bpfloader:bpf prog_run;
++# Avium v132bw20: removed - with avium_health holding the hal_health_server attribute this
++# AOSP line cascades bpf prog_run to it and trips bpfdomain.te neverallow (bpf is
++# whitelisted domains only). The apex health implementation gets this from its own
++# apex sepolicy; the system-domain avium HAL does not use bpf.
++
++# Avium beyond1q v132bw12: daemonize the coredomain health server so the
++# system-domain avium health HAL (android.hardware.health-service.avium,
++# labeled hal_health_server_exec above) can start and register IHealth.
++# neverallow { domain -hal_health_server } hal_health_service:service_manager add
++# makes this the ONLY legal domain for the registration.
++# Avium beyond1q v132bw16: define a real coredomain type for the system-domain
++# health HAL (android.hardware.health-service.avium) and tag it with the
++# hal_health_server ATTRIBUTE - the neverallow
++#   neverallow { domain -hal_health_server } hal_health_service:service_manager add
++# whitelists by attribute, and A16 only defines the apex's own type, so we
++# declare ours here.
++type avium_health, domain;
++typeattribute avium_health coredomain;
++# v132bw22: the AOSP macro way - grants halserverdomain (fork neverallow
++# exclusion), hal_health_server (add neverallow exclusion) and hal_health.
++hal_server_domain(avium_health, hal_health)
++init_daemon_domain(avium_health)
++binder_use(avium_health)
++allow avium_health sysfs_batteryinfo:dir r_dir_perms;
++allow avium_health sysfs_batteryinfo:file r_file_perms;
++# Samsung labels /sys/class/power_supply as sysfs_battery, a vendor-private
++# type that plat policy cannot name. The type carries the shared sysfs_type
++# attribute, which plat policy CAN use, so grant the same read access through
++# it. Without this, BatteryMonitor::init() logs
++#   healthd: Could not open /sys/class/power_supply
++#   healthd: No battery devices found
++# and BatteryService reports present=false / level=0 / voltage=0.
++allow avium_health sysfs_type:dir r_dir_perms;
++allow avium_health sysfs_type:file r_file_perms;
++allow avium_health kmsg_device:chr_file { getattr w_file_perms };
++allow avium_health same_process_hal_file:dir r_dir_perms;
++get_prop(avium_health, exported_system_prop)
++set_prop(avium_health, exported_system_prop)
++
+diff --git a/private/hal_keymint.te b/private/hal_keymint.te
+index 6c7b57727..e74d1f128 100644
+--- a/private/hal_keymint.te
++++ b/private/hal_keymint.te
+@@ -6,3 +6,13 @@ binder_call(hal_keymint_server, servicemanager)
+ 
+ allow { hal_keymint_server -coredomain } tee_device:chr_file rw_file_perms;
+ allow { hal_keymint_server -coredomain } ion_device:chr_file r_file_perms;
++
++# Avium beyond1q: system-domain keymint HAL (android.hardware.security.keymint-service.avium,
++# labeled avium_keymint_exec). coredomain hal_server_domain, /dev/binder registration.
++type avium_keymint, domain;
++typeattribute avium_keymint coredomain;
++hal_server_domain(avium_keymint, hal_keymint)
++init_daemon_domain(avium_keymint)
++binder_use(avium_keymint)
++get_prop(avium_keymint, exported_system_prop)
++set_prop(avium_keymint, exported_system_prop)
+diff --git a/private/hal_light.te b/private/hal_light.te
+index 40829b6bb..40f5a417e 100644
+--- a/private/hal_light.te
++++ b/private/hal_light.te
+@@ -13,3 +13,13 @@ allow hal_light_server dumpstate:fifo_file write;
+ allow hal_light sysfs_leds:lnk_file read;
+ allow hal_light sysfs_leds:file rw_file_perms;
+ allow hal_light sysfs_leds:dir r_dir_perms;
++
++# Avium beyond1q: system-domain light HAL (android.hardware.light-service.lineage.avium,
++# labeled avium_light_exec). coredomain hal_server_domain, /dev/binder registration.
++type avium_light, domain;
++typeattribute avium_light coredomain;
++hal_server_domain(avium_light, hal_light)
++init_daemon_domain(avium_light)
++binder_use(avium_light)
++get_prop(avium_light, exported_system_prop)
++set_prop(avium_light, exported_system_prop)
+diff --git a/private/hal_power.te b/private/hal_power.te
+index 1eb10a15a..c244b5e3f 100644
+--- a/private/hal_power.te
++++ b/private/hal_power.te
+@@ -10,3 +10,14 @@ binder_call(hal_power_client, servicemanager)
+ 
+ # power HAL sets dex2oat performance tuning properties
+ set_prop(hal_power_server, dalvik_dynamic_config_prop)
++
++# Avium beyond1q: system-domain power HAL (android.hardware.power-service.avium,
++# labeled avium_power_exec). No vendor-AIDL bridge on this base, so it registers
++# on /dev/binder; daemonize as a coredomain hal_server_domain like avium_health.
++type avium_power, domain;
++typeattribute avium_power coredomain;
++hal_server_domain(avium_power, hal_power)
++init_daemon_domain(avium_power)
++binder_use(avium_power)
++get_prop(avium_power, exported_system_prop)
++set_prop(avium_power, exported_system_prop)
+diff --git a/private/hal_telephony.te b/private/hal_telephony.te
+index c44f748cd..566caa9b2 100644
+--- a/private/hal_telephony.te
++++ b/private/hal_telephony.te
+@@ -11,15 +11,15 @@ allow hal_telephony_server self:netlink_route_socket nlmsg_write;
+ allowxperm hal_telephony_server self:netlink_route_socket nlmsg priv_route_socket_nlmsgs;
+ allow hal_telephony_server self:global_capability_class_set { setpcap setgid setuid net_admin net_raw };
+ allow hal_telephony_server cgroup:dir create_dir_perms;
+-allow hal_telephony_server cgroup:{ file lnk_file } r_file_perms;
+-allow hal_telephony_server cgroup_v2:dir create_dir_perms;
+-allow hal_telephony_server cgroup_v2:{ file lnk_file } r_file_perms;
+-allow hal_telephony_server radio_device:chr_file rw_file_perms;
+-allow hal_telephony_server radio_device:blk_file r_file_perms;
+-allow hal_telephony_server efs_file:dir create_dir_perms;
+-allow hal_telephony_server efs_file:file create_file_perms;
+-allow hal_telephony_server vendor_shell_exec:file rx_file_perms;
+-allow hal_telephony_server bluetooth_efs_file:file r_file_perms;
++allow { hal_telephony_server -avium_radio } cgroup:{ file lnk_file } r_file_perms;
++allow { hal_telephony_server -avium_radio } cgroup_v2:dir create_dir_perms;
++allow { hal_telephony_server -avium_radio } cgroup_v2:{ file lnk_file } r_file_perms;
++allow { hal_telephony_server -avium_radio } radio_device:chr_file rw_file_perms;
++allow { hal_telephony_server -avium_radio } radio_device:blk_file r_file_perms;
++allow { hal_telephony_server -avium_radio } efs_file:dir create_dir_perms;
++allow { hal_telephony_server -avium_radio } efs_file:file create_file_perms;
++allow { hal_telephony_server -avium_radio } vendor_shell_exec:file rx_file_perms;
++allow { hal_telephony_server -avium_radio } bluetooth_efs_file:file r_file_perms;
+ allow hal_telephony_server bluetooth_efs_file:dir r_dir_perms;
+ 
+ # property service
+@@ -38,11 +38,37 @@ allow hal_telephony_server self:netlink_kobject_uevent_socket create_socket_perm
+ # Access to wake locks
+ wakelock_use(hal_telephony_server)
+ 
+-r_dir_file(hal_telephony_server, proc_net_type)
+-r_dir_file(hal_telephony_server, sysfs_type)
++r_dir_file({ hal_telephony_server -avium_radio }, proc_net_type)
++r_dir_file({ hal_telephony_server -avium_radio }, sysfs_type)
+ 
+ # granting the ioctl permission for hal_telephony_server should be device specific
+ allow hal_telephony_server self:socket create_socket_perms_no_ioctl;
+ 
+ # Allow AIDL HAL shim to call HIDL HAL implementation
+ binder_call(hal_telephony_server, hal_telephony_server)
++
++# Avium beyond1q: system-domain radio compat bridge (android.hardware.radio-
++# service.compat.avium, labeled avium_radio_exec).
++#
++# SELinux note: this domain intentionally uses hal_server_domain(hal_telephony)
++# so it can publish hal_radio_service (the vendor-side neverallow requires the
++# hal_telephony_server attribute). The vendor-only powers that the attribute
++# would otherwise inherit (radio_device, efs_file, vendor_shell_exec, sysfs)
++# are scoped out of the corresponding allow rules above, because a coredomain
++# may not hold them.
++type avium_radio, domain;
++typeattribute avium_radio coredomain;
++hal_server_domain(avium_radio, hal_telephony)
++init_daemon_domain(avium_radio)
++net_domain(avium_radio)
++binder_use(avium_radio)
++allow avium_radio hal_radio_service:service_manager add;
++# Talk to hwservicemanager / the HIDL radio HALs (rild). hal_client_domain
++# only tags the client attribute; the hwbinder path needs these explicitly.
++hwbinder_use(avium_radio)
++# listManifestByInterface() talks to the hwservicemanager itself; hwbinder_use
++# only grants the device open/mmap, not the IPC call to the manager.
++binder_call(avium_radio, hwservicemanager)
++allow avium_radio hwservicemanager:binder { call transfer };
++binder_call(avium_radio, hal_telephony_server)
++allow avium_radio hal_telephony_hwservice:hwservice_manager find;
+diff --git a/private/hal_vibrator.te b/private/hal_vibrator.te
+index 6909ff2e6..df1d0e711 100644
+--- a/private/hal_vibrator.te
++++ b/private/hal_vibrator.te
+@@ -15,3 +15,15 @@ allow hal_vibrator sysfs_vibrator:dir search;
+ 
+ # Allow HAL vibrator to control some parameters of a vibration, such as scaling.
+ allow hal_vibrator fwk_vibrator_control_service:service_manager find;
++
++# Avium beyond1q: system-domain vibrator HAL twin
++# (android.hardware.vibrator-service.avium). Registers IVibrator /
++# IVibratorManager on /dev/binder as a coredomain hal_server_domain.
++type avium_vibrator, domain;
++typeattribute avium_vibrator coredomain;
++hal_server_domain(avium_vibrator, hal_vibrator)
++init_daemon_domain(avium_vibrator)
++binder_use(avium_vibrator)
++# Drives the sysfs timed-output node directly (genfs_contexts labels it
++# sysfs_vibrator).
++allow avium_vibrator sysfs_vibrator:file rw_file_perms;
+diff --git a/private/hal_wifi_supplicant.te b/private/hal_wifi_supplicant.te
+index 3f17689e9..91bd052c2 100644
+--- a/private/hal_wifi_supplicant.te
++++ b/private/hal_wifi_supplicant.te
+@@ -37,3 +37,55 @@ allow hal_wifi_supplicant wifi_key:keystore2_key {
+ # wpa_supplicant should not trust any data from sdcards
+ neverallow hal_wifi_supplicant_server { sdcard_type fuse }:dir ~getattr;
+ neverallow hal_wifi_supplicant_server { sdcard_type fuse }:file *;
++
++# Avium beyond1q: system-domain wpa_supplicant twin. The AIDL ISupplicant
++# service must register on /dev/binder (no vendor-AIDL bridge on this bp4a
++# base), so wpa_supplicant runs as a coredomain hal_server_domain like
++# avium_health/avium_light/avium_power/avium_keymint.
++type avium_supplicant, domain;
++typeattribute avium_supplicant coredomain;
++hal_server_domain(avium_supplicant, hal_wifi_supplicant)
++init_daemon_domain(avium_supplicant)
++binder_use(avium_supplicant)
++get_prop(avium_supplicant, exported_system_prop)
++set_prop(avium_supplicant, exported_system_prop)
++
++# avium_supplicant is a plat/coredomain domain, so it cannot touch
++# /data/vendor/wifi (vendor-private wifi_vendor_data_file). Give it a
++# plat-visible state directory instead - the same shape AOSP uses for
++# wifi_mainline_supplicant. supplicant.cpp is compiled with
++# -DAVIUM_SYSTEM_SUPPLICANT so it points at /data/misc/wifi/avium_supplicant.
++type avium_supplicant_data_file, file_type, data_file_type, core_data_file_type;
++
++# Parent directory only needs search so the child can be resolved.
++allow avium_supplicant wifi_data_file:dir { getattr search };
++
++allow avium_supplicant avium_supplicant_data_file:dir create_dir_perms;
++allow avium_supplicant avium_supplicant_data_file:file create_file_perms;
++allow avium_supplicant avium_supplicant_data_file:sock_file { create write setattr unlink };
++
++# The control socket created by `socket wpa_wlan0 dgram 660 wifi wifi` in
++# wifi_supplicant_avium.rc, plus the per-interface ctrl sockets.
++allow avium_supplicant wpa_socket:sock_file create_file_perms;
++allow avium_supplicant wpa_socket:dir rw_dir_perms;
++allow avium_supplicant system_wpa_socket:sock_file create_file_perms;
++
++# netlink/ioctl surface for nl80211. hal_server_domain() makes
++# avium_supplicant a member of hal_wifi_supplicant, but the attribute-scoped
++# `allow hal_wifi_supplicant self:...` rules above are expanded per-type at
++# compile time only for the types declared in the same module, so the twin
++# domain needs its own copy of the driver-facing socket permissions.
++allow avium_supplicant self:netlink_route_socket { bind create read write nlmsg_read nlmsg_write nlmsg_readpriv };
++allowxperm avium_supplicant self:netlink_route_socket nlmsg priv_route_socket_nlmsgs;
++allow avium_supplicant self:netlink_generic_socket create_socket_perms_no_ioctl;
++allow avium_supplicant self:netlink_socket create_socket_perms_no_ioctl;
++allow avium_supplicant self:packet_socket create_socket_perms;
++allowxperm avium_supplicant self:packet_socket ioctl { unpriv_sock_ioctls priv_sock_ioctls unpriv_tty_ioctls };
++allow avium_supplicant self:udp_socket create_socket_perms;
++allowxperm avium_supplicant self:udp_socket ioctl priv_sock_ioctls;
++allow avium_supplicant self:global_capability_class_set { net_admin net_raw setuid setgid };
++allow avium_supplicant sysfs_net:dir search;
++allow avium_supplicant sysfs_type:dir r_dir_perms;
++allow avium_supplicant sysfs_type:file r_file_perms;
++allow avium_supplicant proc_net_type:dir r_dir_perms;
++allow avium_supplicant proc_net_type:file r_file_perms;
+diff --git a/vendor/file_contexts b/vendor/file_contexts
+index c8fb1f95a..734f82a9a 100644
+--- a/vendor/file_contexts
++++ b/vendor/file_contexts
+@@ -79,6 +79,12 @@ starting_at_board_api(202604, `
+ /(vendor|system/vendor)/bin/hw/android\.hardware\.ir-service\.example          u:object_r:hal_ir_default_exec:s0
+ /(vendor|system/vendor)/bin/hw/android\.hardware\.keymaster@3\.0-service      u:object_r:hal_keymaster_default_exec:s0
+ /(vendor|system/vendor)/bin/hw/android\.hardware\.keymaster@4\.0-service      u:object_r:hal_keymaster_default_exec:s0
++# Avium beyond1q: the AOSP software keymaster twin (see common.mk
++# android.hardware.keymaster@4.0-service_aosp). Without this rule it stays
++# vendor_file, init cannot transition to hal_keymaster_default, and the
++# service aborts -> keystore2 (critical process) exits 4x -> InitFatalReboot
++# into download mode.
++/(vendor|system/vendor)/bin/hw/android\.hardware\.keymaster@4\.0-service_aosp      u:object_r:hal_keymaster_default_exec:s0
+ /(vendor|system/vendor)/bin/hw/android\.hardware\.keymaster@4\.1-service      u:object_r:hal_keymaster_default_exec:s0
+ /(vendor|system/vendor)/bin/hw/android\.hardware\.light@2\.0-service          u:object_r:hal_light_default_exec:s0
+ /(vendor|system/vendor)/bin/hw/android\.hardware\.light@2\.0-service-lazy     u:object_r:hal_light_default_exec:s0
+diff --git a/vendor/hal_fingerprint_default.te b/vendor/hal_fingerprint_default.te
+index aca6f3d3c..e7d2d69ff 100644
+--- a/vendor/hal_fingerprint_default.te
++++ b/vendor/hal_fingerprint_default.te
+@@ -7,6 +7,13 @@ init_daemon_domain(hal_fingerprint_default)
+ # android.frameworks.sensorservice through libsensorndkbridge
+ allow hal_fingerprint_default fwk_sensor_service:service_manager find;
+ 
++# Avium beyond1q: the wrapper registers its AIDL HAL on the SYSTEM binder
++# (/dev/binder, pinned via ProcessState::initWithDriver in service.cpp) so
++# system_server can find it — a vendor:true binary would otherwise default
++# to /dev/vndbinder, which system_server never queries.
++binder_use(hal_fingerprint_default)
++allow hal_fingerprint_default hal_fingerprint_service:service_manager add;
++
+ set_prop(hal_fingerprint_default, virtual_fingerprint_prop)
+ 
+ userdebug_or_eng(`

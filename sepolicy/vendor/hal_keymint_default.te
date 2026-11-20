@@ -1,0 +1,26 @@
+# Avium beyond1q (v132ac): the software KeyMint reference here is patched
+# (hardware/interfaces/security/keymint/aidl/default/service.cpp) to register
+# on the SYSTEM servicemanager, because A16 bp4a keystore2 resolves
+# IKeyMintDevice/ISecureClock/ISharedSecret/IRemotelyProvisionedComponent
+# through ProcessState's default (/dev/binder for system processes) and the
+# libbinder unified backend has NO system->vndbinder fallback
+# (frameworks/native/libs/binder/IServiceManager.cpp + BackendUnifiedServiceManager.cpp
+# source-probed in this session; live proof: keystore2 retried NAME_NOT_FOUND x6
+# while vndSM's own registry showed all four instances registered happily).
+# The reference binary now lands on /dev/binder, but servicemanager's in-process
+# Access::canAdd -> selinux_check_access denies it (denials are enforced inside
+# SM regardless of the global permissive mount; status=-129 EX_SECURITY abort in
+# keymint, crash loop, boot stall). AOSP never ships the add rules because it
+# never adds these from vendor domains to the system SM -- grant them here.
+# hal_keymint_default carries the hal_keymint_server attribute via AOSP's
+# hal_server_domain macro (system/sepolicy/vendor/hal_keymint_default.te),
+# so these allows satisfy the protected_service neverallows (-hal_keymint_server etc.).
+allow hal_keymint_default hal_keymint_service:service_manager add;
+allow hal_keymint_default hal_secureclock_service:service_manager add;
+allow hal_keymint_default hal_sharedsecret_service:service_manager add;
+allow hal_keymint_default hal_remotelyprovisionedcomponent_service:service_manager add;
+
+# The registration also needs the binder device node + context manager access
+# from the vendor domain (previously the domain only ever talked to vndbinder).
+allow hal_keymint_default servicemanager:binder { call transfer };
+allow hal_keymint_default binder_device:chr_file rw_file_perms;

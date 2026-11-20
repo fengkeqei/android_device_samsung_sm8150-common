@@ -127,3 +127,66 @@
 # VK ID"), and vold blocks forever on android.security.maintenance.
 # (boot 2026-10-30, qseecom-service restarted 79 times)
 /(vendor|vendor_dlkm)/lib(64)?/(hw/)?vendor\.qti\.hardware\.qseecom@1\.0(-impl)?\.so u:object_r:same_process_hal_file:s0
+
+# === NFC (NXP PN547 over /dev/pn547) ===
+# The qcom vendor policy labels /dev/nq-nci, /dev/sec-nfc, /dev/st21nfc and
+# /dev/nfc-nci as nfc_device, but this board's node is /dev/pn547 and nothing
+# labels it, so it stays u:object_r:device:s0. hal_nfc_default then cannot
+# open it:
+#   avc: denied { open read write } path="/dev/pn547" tcontext=u:object_r:device:s0
+#   avc: denied { ioctl } path="/dev/pn547" ioctlcmd=0xe901
+# and com.android.nfc reports the adapter as unavailable.
+/dev/pn547 u:object_r:nfc_device:s0
+
+# === Vendor audio HAL dependency closure must be same_process_hal_file ===
+# avium_audio is a coredomain (the AIDL audio HAL has to register on
+# /dev/binder), and coredomain may not execute vendor_file (domain.te
+# neverallow). The dynamic linker maps each dependency's last segment with
+# PROT_EXEC, so without this label every load fails:
+#   vndksupport: Could not load /vendor/lib/hw/audio.primary.msmnile.so from
+#   sphal namespace: dlopen failed: couldn't map "/vendor/lib/libbase.so"
+#   segment 2: Permission denied
+#   AHAL_StreamLegacy: getLegacyDevice: hw_get_module_by_class(audio.primary)
+#   failed: -22
+# ModuleLegacy then falls back to the AOSP ALSA backend, which writes pcm0p --
+# not routed to the CS35L41 speakers -- so playback is silent.
+# same_process_hal_file is the one vendor-side type coredomain may execute
+# (app.te, hal_graphics_allocator.te, crosvm.te all do this).
+/(vendor|vendor_dlkm)/lib/hw/audio\.primary\.msmnile\.so     u:object_r:same_process_hal_file:s0
+/(vendor|vendor_dlkm)/lib/libtinyalsa\.so                    u:object_r:same_process_hal_file:s0
+/(vendor|vendor_dlkm)/lib/libtinycompress\.so                u:object_r:same_process_hal_file:s0
+/(vendor|vendor_dlkm)/lib/libaudioroute\.so                  u:object_r:same_process_hal_file:s0
+/(vendor|vendor_dlkm)/lib/libaudioutils\.so                  u:object_r:same_process_hal_file:s0
+/(vendor|vendor_dlkm)/lib/libexpat\.so                       u:object_r:same_process_hal_file:s0
+/(vendor|vendor_dlkm)/lib/libhidlbase\.so                    u:object_r:same_process_hal_file:s0
+/(vendor|vendor_dlkm)/lib/libprocessgroup\.so                u:object_r:same_process_hal_file:s0
+/(vendor|vendor_dlkm)/lib/libutils\.so                       u:object_r:same_process_hal_file:s0
+/(vendor|vendor_dlkm)/lib/libsecaudioinfo\.so                u:object_r:same_process_hal_file:s0
+/(vendor|vendor_dlkm)/lib/libaudio_soundtrigger\.so          u:object_r:same_process_hal_file:s0
+/(vendor|vendor_dlkm)/lib/libsamsungVoipResampler\.so        u:object_r:same_process_hal_file:s0
+/(vendor|vendor_dlkm)/lib/librecordalive\.so                 u:object_r:same_process_hal_file:s0
+/(vendor|vendor_dlkm)/lib/libaudio_log_utils\.so             u:object_r:same_process_hal_file:s0
+/(vendor|vendor_dlkm)/lib/libspeexresampler\.so              u:object_r:same_process_hal_file:s0
+/(vendor|vendor_dlkm)/lib/libvndksupport\.so                 u:object_r:same_process_hal_file:s0
+/(vendor|vendor_dlkm)/lib/libfloatingfeature\.so             u:object_r:same_process_hal_file:s0
+/(vendor|vendor_dlkm)/lib/libsecnativefeature\.so            u:object_r:same_process_hal_file:s0
+/(vendor|vendor_dlkm)/lib/libbinder\.so                      u:object_r:same_process_hal_file:s0
+/(vendor|vendor_dlkm)/lib/lib_soundaliveresampler\.so        u:object_r:same_process_hal_file:s0
+/(vendor|vendor_dlkm)/lib/lib_SamsungRec_07010\.so           u:object_r:same_process_hal_file:s0
+/(vendor|vendor_dlkm)/lib/lib_SoundAlive_SRC384_ver320\.so   u:object_r:same_process_hal_file:s0
+/(vendor|vendor_dlkm)/lib/libaconfig_storage_read_api_cc\.so u:object_r:same_process_hal_file:s0
+/(vendor|vendor_dlkm)/lib/server_configurable_flags\.so      u:object_r:same_process_hal_file:s0
+/(vendor|vendor_dlkm)/lib/vendor\.qti\.hardware\.audiohalext@[0-9.]*\.so  u:object_r:same_process_hal_file:s0
+/(vendor|vendor_dlkm)/lib/android\.hardware\.power@[0-9.]*\.so           u:object_r:same_process_hal_file:s0
+
+# === Vendor gatekeeper service (AIDL, TEE-backed) ===
+# The binary must carry hal_gatekeeper_default_exec so init can transition
+# init -> hal_gatekeeper_default when starting it. Without the label init
+# refuses:
+#   File /vendor/bin/hw/avium.gatekeeper-service.vendor (labeled
+#   "u:object_r:vendor_file:s0") has incorrect label or no domain transition
+#   from u:r:init:s0
+# and IGatekeeper/default is never registered, so BiometricService's
+# constructor throws "Gatekeeper service not available" and system_server
+# crash-loops before boot_completed.
+/(vendor|vendor_dlkm)/bin/hw/avium\.gatekeeper-service\.vendor u:object_r:hal_gatekeeper_default_exec:s0

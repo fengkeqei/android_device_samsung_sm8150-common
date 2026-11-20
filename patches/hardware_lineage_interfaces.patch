@@ -1,0 +1,102 @@
+diff --git a/health/aidl/default/Android.bp b/health/aidl/default/Android.bp
+index 420a196..20223f5 100644
+--- a/health/aidl/default/Android.bp
++++ b/health/aidl/default/Android.bp
+@@ -7,7 +7,11 @@
+ cc_defaults {
+     name: "android.hardware.health-service.batteryless-defaults",
+     relative_install_path: "hw",
+-    vintf_fragments: ["android.hardware.health-service.batteryless.xml"],
++    // v132an: raw-file vintf_fragments DROPPED. With the module on /system,
++    // fsgen rejects non-module fragment refs ("use vintf_fragment_modules").
++    // The IHealth/default declaration lives in
++    // device/samsung/sm8150-common/manifest_proven.xml (merged into the runtime
++    // device manifest) instead, so the fragment file is not needed anywhere.
+     vendor: true,
+     recovery_available: true,
+ 
+@@ -38,6 +42,10 @@ cc_defaults {
+ cc_binary {
+     name: "android.hardware.health-service.batteryless",
+     recovery: false,
++    // Avium v132am: SYSTEM partition. HealthService (system_server) blocks the
++    // boot thread on waitForDeclaredService(android.hardware.health.IHealth/default)
++    // against the SYSTEM SM; the vendor-partition build registered on vndSM and
++    // was invisible (same gap as keymint/power/lights, ANR-proven).
+     vendor: true,
+     defaults: ["android.hardware.health-service.batteryless-defaults"],
+     init_rc: ["android.hardware.health-service.batteryless.rc"],
+diff --git a/health/aidl/default/android.hardware.health-service.batteryless.rc b/health/aidl/default/android.hardware.health-service.batteryless.rc
+index 0e874f3..5220c44 100644
+--- a/health/aidl/default/android.hardware.health-service.batteryless.rc
++++ b/health/aidl/default/android.hardware.health-service.batteryless.rc
+@@ -1,4 +1,4 @@
+-service vendor.health-default /vendor/bin/hw/android.hardware.health-service.batteryless
++service vendor.health-default /system/bin/hw/android.hardware.health-service.batteryless
+     class hal
+     user system
+     group system
+diff --git a/health/aidl/default/vendor.lineage.health-service.default.rc b/health/aidl/default/vendor.lineage.health-service.default.rc
+index 77bd83f..9c0d00b 100644
+--- a/health/aidl/default/vendor.lineage.health-service.default.rc
++++ b/health/aidl/default/vendor.lineage.health-service.default.rc
+@@ -2,3 +2,5 @@ service vendor.lineage_health /vendor/bin/hw/vendor.lineage.health-service.defau
+     class hal
+     user system
+     group system
++    # Avium v132am: superseded by system-partition batteryless IHealth/default.
++    disabled
+diff --git a/light/Android.bp b/light/Android.bp
+index 82efed2..7f59ae0 100644
+--- a/light/Android.bp
++++ b/light/Android.bp
+@@ -35,3 +35,39 @@ cc_binary {
+         "android.hardware.light-V2-ndk",
+     ],
+ }
++
++// Avium beyond1q (v132al): SYSTEM variant. Same structural gap as keymint/power:
++// LightsService (system_server) calls waitForDeclaredService(ILights/default)
++// against the SYSTEM servicemanager and BLOCKS the boot thread (ANR-proven at
++// LightsService$VintfHalCache.get). The vendor variant registers on vndSM where
++// no bridge exists in this bp4a. sysfs paths are identical for both partitions.
++cc_binary {
++    name: "android.hardware.light-service.lineage.avium",
++    defaults: ["hidl_defaults"],
++    relative_install_path: "hw",
++    init_rc: ["android.hardware.light-service.lineage.avium.rc"],
++    cflags: select(soong_config_variable("lineagelight", "scan_for_backlight_devices"), {
++        true: ["-DSCAN_FOR_BACKLIGHT_DEVICES"],
++        default: [],
++    }) + select(soong_config_variable("lineagelight", "snap_rgb_to_pure"), {
++        true: ["-DSNAP_RGB_TO_PURE"],
++        default: [],
++    }),
++    srcs: [
++        "devices/BacklightDevice.cpp",
++        "devices/LedDevice.cpp",
++        "devices/RgbLedDevice.cpp",
++        "models/Color.cpp",
++        "models/State.cpp",
++        "Devices.cpp",
++        "Lights.cpp",
++        "Utils.cpp",
++        "service.cpp",
++    ],
++    local_include_dirs: ["."],
++    shared_libs: [
++        "libbase",
++        "libbinder_ndk",
++        "android.hardware.light-V2-ndk",
++    ],
++}
+diff --git a/light/android.hardware.light-service.lineage.rc b/light/android.hardware.light-service.lineage.rc
+index bc0814b..788d859 100644
+--- a/light/android.hardware.light-service.lineage.rc
++++ b/light/android.hardware.light-service.lineage.rc
+@@ -217,3 +217,5 @@ service vendor.light-default /vendor/bin/hw/android.hardware.light-service.linea
+     user system
+     group system
+     shutdown critical
++    # Avium v132al: superseded by avium.light-default (system partition, system SM).
++    disabled

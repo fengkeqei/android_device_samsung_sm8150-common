@@ -1,0 +1,5 @@
+service vendor.soundtrigger-hal-2-0 /vendor/bin/hw/android.hardware.soundtrigger@2.0-service
+    class hal
+    user audioserver
+    group audio
+    capabilities BLOCK_SUSPEND

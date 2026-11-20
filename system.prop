@@ -40,6 +40,41 @@ mm.enable.smoothstreaming=true
 # Netflix custom property
 ro.netflix.bsp_rev=Q855-16947-1
 
+# Radio / telephony configuration (stock vendor/build.prop values).
+#
+# These were lost once already when the tree was rolled back to its committed
+# baseline, so keep them together here with the reasoning.
+#
+# ro.vendor.sec.radio.def_network: libsec-ril.so reads this directly and logs
+#   "ro.vendor.sec.radio.def_network is null"
+# when it is unset, then falls back to an internal default that does not match
+# this device. Stock sets 9 (NETWORK_MODE_LTE_GSM_WCDMA).
+#
+# ro.telephony.default_network: read by the Java layer only (PhoneFactory);
+# 20 = NETWORK_MODE_NR_LTE_GSM_WCDMA, which is what the stock ROM ships.
+#
+# ro.vendor.sec.lteOnCdmaDevice=1 is stock's "this modem does LTE + CDMA"
+# marker; ro.radio.noril=no tells the platform a RIL is present at all.
+#
+# ro.csc.*: libsemnativecarrierfeature.so (the backend of
+# Region::LoadNetworkTypeCapability) locates the carrier feature table through
+# ro.csc.omcnw_code / ro.csc.omcnw_code2. Empty means it never loads
+# customer_carrier_feature.json, and Region::GetNtcFeature() falls back to
+# defaults. Values come from this unit's EFS:
+#   /efs/imei/mps_code.dat    = CHC
+#   /efs/imei/omcnw_code.dat  = CHC
+# and the bootloader already exports ro.boot.sales_code=CHC.
+ro.telephony.default_network=20
+ro.vendor.sec.radio.def_network=9
+ro.vendor.sec.lteOnCdmaDevice=1
+ro.radio.noril=no
+ro.telephony.default_cdma_sub=0
+ro.csc.sales_code=CHC
+ro.csc.omcnw_code=CHC
+ro.csc.omcnw_code2=CHC
+ro.csc.country_code=CN
+ro.csc.countryiso_code=CN
+
 # Radio
 persist.vendor.radio.atfwd.start=true
 

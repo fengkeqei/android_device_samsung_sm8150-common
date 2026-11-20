@@ -1,0 +1,29 @@
+diff --git a/keystore2/keystore2.rc b/keystore2/keystore2.rc
+index e669b18b..9fa3b917 100644
+--- a/keystore2/keystore2.rc
++++ b/keystore2/keystore2.rc
+@@ -10,8 +10,24 @@ service keystore2 /system/bin/keystore2 /data/misc/keystore
+     class early_hal
+     user keystore
+     group keystore readproc log
++    # avium: send stdout/stderr to /dev/kmsg_debug. keystore2 logs through
++    # liblog, but its dynamic-linker failures (CANNOT LINK EXECUTABLE ...)
++    # go to stderr only, which logd never sees before /data is mounted.
++    # Without this, a boot stall before `on boot` leaves no evidence at all.
++    stdio_to_kmsg
+     task_profiles ProcessCapacityHigh
+     # The default memlock limit of 65536 bytes is too low for keystore.
+     rlimit memlock unlimited unlimited
+     # Reboot to bootloader if Keystore crashes more than 4 times before `sys.boot_completed`.
+     critical window=0
++
++# avium: bring adb up while the boot is still stalled in early_hal.
++#
++# keystore2 is `critical window=0`, so four crashes send the device to
++# bootloader (download mode) before `on boot` ever runs - and the normal adb
++# trigger lives in `on boot`. apexd.status is used because it flips exactly
++# when the adbd APEX becomes available; it must be read from a system-domain rc
++# (a vendor rc got a property-read denial for apexd_prop).
++on property:apexd.status=activated
++    setprop sys.usb.config none
++    setprop sys.usb.config adb

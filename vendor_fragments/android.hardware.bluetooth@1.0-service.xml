@@ -1,0 +1,16 @@
+<manifest version="1.0" type="device">
+    <!-- v132fix: declare the HIDL Bluetooth HCI interface. The device manifest
+         in use is manifest_stock_shell.xml + los_backfill.xml, which has no
+         android.hardware.bluetooth entry, so hwservicemanager could not
+         resolve IBluetoothHci/default:
+           hci_backend_hidl.cc:129 HidlHci: assert failed: hci_ != nullptr
+         -> com.android.bluetooth SIGABRT loop -> Bluetooth UI dead.
+         This fragment is the minimal addition (the full manifest_proven.xml
+         was tried and is a regression: it makes every other HAL declaration
+         conflict, breaking health/keymint/light registration). -->
+    <hal format="hidl">
+        <name>android.hardware.bluetooth</name>
+        <transport>hwbinder</transport>
+        <fqname>@1.0::IBluetoothHci/default</fqname>
+    </hal>
+</manifest>

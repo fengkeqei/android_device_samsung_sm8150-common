@@ -44,3 +44,33 @@ allow vendor_legacy_service shell:fifo_file write;
 allow vendor_legacy_service sysfs_camera_writable:dir search;
 allow vendor_legacy_service sysfs_camera_writable:file rw_file_perms;
 binder_call(vendor_legacy_service, cameraserver)
+
+# Avium beyond1q: vendor_init runs the rear-flash chown/chmod from romfix.rc.
+# The camera provider creates /sys/devices/virtual/camera/flash/rear_flash after
+# "on boot", so the plat init.qcom.rc chown races and loses, and the node stays
+# root:root 0664 -- the provider (uid 1047) then cannot write it and the torch
+# silently fails (CamX: SetSysfsTorchMode() rear_flash : cannot open file).
+# sysfs_camera_writable is vendor-private, so only a vendor-domain action can
+# set its attributes.
+allow vendor_init sysfs_camera_writable:dir { search getattr };
+allow vendor_init sysfs_camera_writable:file { getattr setattr };
+
+# Avium beyond1q: hal_gatekeeper_default must read its mode property.
+#
+# service.cpp probes the Samsung MDFPP TEE module unless
+# persist.vendor.gatekeeper.soft == "0". Reading the property currently fails:
+#   W libc: Access denied finding property "persist.vendor.gatekeeper.soft"
+# so the default "1" wins and the TEE path is never attempted, the software
+# gatekeeper mints HATs with a non-TEE HMAC key, and the fingerprint trustlet
+# rejects them:
+#   E bauth_FPBAuthService: BAuth_Hat_OP fail rv : 28
+#   E bauth_FPBAuthService: enroll system fail BAuthSensorControl_DeviceEnableInt
+# get_prop() expands to { getattr open read map }, which is what the
+# property.te:207 neverallow permits (r_file_perms would add ioctl/lock).
+get_prop(hal_gatekeeper_default, vendor_default_prop)
+
+# Avium beyond1q: hal_gatekeeper_default logs through libbase's KernelLogger,
+# which writes to /dev/kmsg. Without write access every log line becomes an
+# avc denial and the HAL's own diagnostics (gatekeeper_open failures in
+# particular) are unreadable.
+allow hal_gatekeeper_default kmsg_device:chr_file { getattr open write };

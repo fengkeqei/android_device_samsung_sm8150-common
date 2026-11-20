@@ -1,0 +1,16 @@
+diff --git a/java/res/values/config.xml b/java/res/values/config.xml
+index 12c1da3..0b0ca65 100644
+--- a/java/res/values/config.xml
++++ b/java/res/values/config.xml
+@@ -17,5 +17,10 @@
+ <resources>
+     <bool name="config_imsstack_emergency_mmtel_feature">true</bool>
+     <bool name="config_imsstack_rcs_feature">true</bool>
+-    <bool name="config_imsstack_dedicated_bearer_qos_supported">true</bool>
++    <!-- beyond1q / AviumUI: Samsung's libril never reports the dedicated-bearer
++         QoS event, so ImsStack waits for it forever and outgoing calls die with
++         CODE_LOCAL_CALL_RESOURCE_RESERVATION_FAILED(145). A15 WORKLOG 71w fixed
++         exactly this by turning the switch off (README: "Only products whose
++         data HAL cannot report dedicated-bearer QoS should set this"). -->
++    <bool name="config_imsstack_dedicated_bearer_qos_supported">false</bool>
+ </resources>

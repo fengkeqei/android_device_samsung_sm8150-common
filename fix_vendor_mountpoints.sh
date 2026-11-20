@@ -213,6 +213,87 @@ for stale in /bin/hw/android.hardware.graphics.composer@2.4-service \
 done
 echo "removed stock composer@2.4-service"
 
+# v132bw41b: drop the vendor AIDL audio service rc. The system-domain avium
+# twin (android.hardware.audio.service-aidl.avium, service name
+# vendor.audio-hal-aidl, registers on /dev/binder) takes over the slot; two
+# audio HAL processes cannot coexist - the sound card is single-owner and the
+# second instance deadlocks audioserver's getDevice -> AudioService main
+# thread -> the 185 s watchdog loop. The binary stays installed (fsgen
+# dependency graph intact), only the service definition goes away.
+debugfs -w -R "rm /etc/init/android.hardware.audio.service-aidl.rc" "$TMP/vendor.raw" >/dev/null 2>&1 || true
+echo "removed vendor audio.service-aidl rc (avium takeover)"
+
+# v132bw41c: drop the AOSP AIDL wifi-service rc and KEEP the stock HIDL
+# wifi@1.0-service. On this bp4a base the WiFi framework has no vendor-AIDL
+# bridge (system_server looks for HALs on /dev/binder, vendor AIDL HALs
+# register on vndbinder), so the framework falls back to the legacy HIDL
+# android.hardware.wifi@1.0::IWifi path. The stock HIDL service registers
+# wifi@1.0..1.4 fine on this base; the AIDL IWifi is never used and its rc
+# ("vendor.wifi_hal_legacy") collides with the HIDL service name, so remove
+# the AIDL rc and leave the HIDL one in place.
+debugfs -w -R "rm /etc/init/android.hardware.wifi-service.rc" "$TMP/vendor.raw" >/dev/null 2>&1 || true
+echo "removed AIDL wifi-service rc (HIDL wifi@1.0 takeover)"
+
+# v132bo: remove the QTI StrongBox keymaster blob as well. On A16 its HIDL
+# registerService() fails ("Could not register service for SB Keymaster 4.0
+# (-2147483648)") because the AIDL-only servicemanager cannot host a legacy
+# HIDL keymaster instance; the 5 s restart loop feeds the
+# "exited 4 times before boot completed" -> sys.init.updatable_crashing
+# -> flags_health_check storm that ultimately kicks the device into
+# download mode. keystore2 gets its strongbox-equivalent from the AIDL
+# keymint stack, so nothing needs this blob.
+for stale in /bin/hw/android.hardware.keymaster@4.0-strongbox-service-qti \
+             /etc/init/android.hardware.keymaster@4.0-strongbox-service-qti.rc; do
+    debugfs -w -R "rm $stale" "$TMP/vendor.raw" >/dev/null 2>&1 || true
+done
+echo "removed stock keymaster@4.0-strongbox-service-qti"
+
+# v132bo: install the vendor_libs hw/ passthrough modules. The big "copy every
+# stock vendor library" loop above only scans lib64/ and lib/ TOP LEVELS, so
+# /vendor/lib64/hw was left with only the individually-handled modules
+# (gatekeeper etc.). frameworks/native GraphicBufferMapper (Gralloc5->4->3->2
+# passthrough chain) aborts with "gralloc-mapper is missing" without
+# hw/android.hardware.graphics.mapper@4.0-impl-qti-display.so, which kills
+# composer@2.1-service (and with it surfaceflinger) in a loop;
+# memtrack@1.0-service dies the same way for lack of hw/memtrack.msmnile.so.
+for d in lib64 lib; do
+    [ -d "$VLIBDIR/$d/hw" ] || continue
+    debugfs -w -R "mkdir /$d/hw" "$TMP/vendor.raw" >/dev/null 2>&1 || true
+    for src in "$VLIBDIR/$d/hw"/*.so; do
+        [ -f "$src" ] || continue
+        name=$(basename "$src")
+        debugfs -w -R "rm /$d/hw/$name" "$TMP/vendor.raw" >/dev/null 2>&1 || true
+        debugfs -w -R "write $src /$d/hw/$name" "$TMP/vendor.raw" >/dev/null 2>&1 || true
+        debugfs -w -R "sif /$d/hw/$name mode 0100755" "$TMP/vendor.raw" >/dev/null 2>&1 || true
+        set_selinux_label "/$d/hw/$name" "u:object_r:same_process_hal_file:s0"
+        echo "added /$d/hw/$name"
+    done
+done
+
+# v132bo: strip task_profiles / ioprio from EVERY vendor rc. The 4.14 kernel
+# exposes cgroup v1 freezer; A16 init's task_profiles management writes
+# cgroup.freeze, gets EACCES on the 4.14 interface, and then treats the
+# service as un-manageable: it SIGKILLs any service carrying a task_profiles
+# line (observed for vendor.bluetooth-1-0: "exited with status 0" followed
+# immediately by "Sending SIGKILL", every restart cycle). v131 removed these
+# lines from the rc sources; the BK rollback restored them. Stripping the
+# directive is safe: it only hints at cpuset/io tuning, never at correctness.
+debugfs -R "ls /etc/init" "$TMP/vendor.raw" 2>/dev/null | tr -s ' ' '\n' | grep '\.rc$' > "$TMP/rcs.txt"
+nstripped=0
+while read -r rc; do
+    [ -n "$rc" ] || continue
+    debugfs -R "cat /etc/init/$rc" "$TMP/vendor.raw" 2>/dev/null > "$TMP/one.rc"
+    if grep -qE "^[[:space:]]*(task_profiles|ioprio)[[:space:]]" "$TMP/one.rc"; then
+        sed -i -E "/^[[:space:]]*(task_profiles|ioprio)[[:space:]]/d" "$TMP/one.rc"
+        debugfs -w -R "rm /etc/init/$rc" "$TMP/vendor.raw" >/dev/null 2>&1 || true
+        debugfs -w -R "write $TMP/one.rc /etc/init/$rc" "$TMP/vendor.raw" >/dev/null 2>&1 || true
+        debugfs -w -R "sif /etc/init/$rc mode 0100644" "$TMP/vendor.raw" >/dev/null 2>&1 || true
+        set_selinux_label "/etc/init/$rc" "u:object_r:vendor_configs_file:s0"
+        nstripped=$((nstripped+1))
+    fi
+done < "$TMP/rcs.txt"
+echo "stripped task_profiles/ioprio from $nstripped vendor rc files"
+
 # Composer stack: use the AOSP source-built variants so they match the
 # AOSP-built composer@2.1-service binary (stock -resources.so does not export
 # ComposerResources::hasDisplayEnabled and the link fails). These install into
@@ -341,29 +422,10 @@ if [ -f "$VRADIO/lib64/libsec-ril.so" ]; then
     echo "installed patched libsec-ril -> /lib64/libsec-ril.so"
 fi
 
-# Device VINTF manifest must be the stock *shell*, never the LOS-merged
-# manifest the build installs from device/.../manifest.xml. los_backfill.xml
-# declares the very same HALs (audio@6.0 IDevicesFactory, ...), and libvintf
-# rejects the ENTIRE device manifest on the first duplicate
-# ("NULL VINTF MANIFEST") -> every AIDL HAL (health, light, ...) is denied at
-# registration (EX_ILLEGAL_ARGUMENT "VINTF declaration error") ->
-# SystemServer BatteryService FATAL -> bootloop (Round 67; same class of bug
-# as Round 51). The shell + backfill + fragments combo is the proven-good
-# combination (boots clean).
-VDTC=device/samsung/sm8150-common
-for pair in "manifest_stock_shell.xml:/etc/vintf/manifest.xml" \
-            "los_backfill.xml:/etc/vintf/manifest/los_backfill.xml"; do
-    src=${pair%%:*}; dst=${pair#*:}
-    if [ ! -f "$VDTC/$src" ]; then
-        echo "MISSING $VDTC/$src"
-        continue
-    fi
-    debugfs -w -R "rm $dst" "$TMP/vendor.raw" >/dev/null 2>&1 || true
-    debugfs -w -R "write $VDTC/$src $dst" "$TMP/vendor.raw" >/dev/null 2>&1 || true
-    debugfs -w -R "sif $dst mode 0100644" "$TMP/vendor.raw" >/dev/null 2>&1 || true
-    set_selinux_label "$dst" "u:object_r:vendor_configs_file:s0"
-    echo "installed $dst (from $src)"
-done
+# Device VINTF manifest is now shipped natively: DEVICE_MANIFEST_FILE points at
+# manifest_stock_backfill.xml (merged stock shell + los_backfill), so the build
+# installs the correct /vendor/etc/vintf/manifest.xml directly. No runtime
+# debugfs surgery needed here any more.
 
 img2simg "$TMP/vendor.raw" "$IMG"
 echo "rewrote $IMG"

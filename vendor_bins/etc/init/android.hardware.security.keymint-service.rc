@@ -1,0 +1,13 @@
+# v132t: seclabel REMOVED (HANDOVER 2.1 step 3 full recipe).
+# With seclabel, the process runs in the vendor domain and linker puts it in
+# the ISOLATED sphal namespace, which cannot see the AOSP keymaster-stack libs
+# it links (libkeymint needs _ZTVN9keymaster18GenerateKeyRequestE from
+# libkeymaster_portable/messages). Domain transition via the exec label is
+# kept; namespace = default vendor section. interfaces dropped to avoid
+# ctl-interface bookkeeping mismatch (registration is code-side AIDL).
+service vendor.keymint-default /vendor/bin/hw/android.hardware.security.keymint-service
+    class early_hal
+    user nobody
+    group drmrpc
+    disabled
+

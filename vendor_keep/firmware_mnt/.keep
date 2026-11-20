@@ -1,0 +1,3 @@
+Placeholder that keeps /vendor/firmware_mnt in the vendor image.
+The real filesystem is mounted over this directory at boot (stock fstab),
+so this file is never visible at runtime.

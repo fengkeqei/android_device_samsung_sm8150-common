@@ -1,0 +1,51 @@
+diff --git a/rild/Android.bp b/rild/Android.bp
+index 8a14786..2f5995e 100644
+--- a/rild/Android.bp
++++ b/rild/Android.bp
+@@ -30,8 +30,34 @@ license {
+     ],
+ }
+ 
+-cc_binary {
++// avium: Samsung's stock rild is required on this device.
++//
++// The AOSP-source rild (kept below as rild_aosp_src for reference) only
++// implements HIDL IRadio up to 1.1 through libril. Android 15/16 telephony
++// expects 1.4 and the AIDL radio bridge, and with the source rild
++// com.android.phone ANR-loops at startup ("failed to complete startup") while
++// the modem stays dead. Samsung's rild registers 1.0-1.4 through libril_sem.
++//
++// This used to be a post-build debugfs overwrite in
++// fix_vendor_mountpoints.sh; shipping the blob as the rild module itself keeps
++// PRODUCT_PACKAGES/`rild` (enforced by vendor/lineage/config/common.mk) and the
++// rild.rc service name intact.
++cc_prebuilt_binary {
+     name: "rild",
++    srcs: ["rild_stock"],
++    stem: "rild",
++    relative_install_path: "hw",
++    proprietary: true,
++    compile_multilib: "64",
++    strip: { none: true },
++    check_elf_files: false,
++    init_rc: ["rild.rc"],
++}
++
++// The source build is disabled; keep it available for other products that set
++// ril.use_aosp_rild := true.
++cc_binary {
++    name: "rild_aosp_src",
+     srcs: ["rild.c"],
+ 
+     shared_libs: [
+@@ -58,9 +84,5 @@ cc_binary {
+     }),
+     relative_install_path: "hw",
+     proprietary: true,
+-    init_rc: ["rild.rc"],
+-    enabled: select(soong_config_variable("ril", "use_aosp_rild"), {
+-        true: true,
+-        default: false,
+-    }),
++    enabled: false,
+ }

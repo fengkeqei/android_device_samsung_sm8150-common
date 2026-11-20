@@ -1,0 +1,119 @@
+diff --git a/src/crypto/asn1/a_int.cc b/src/crypto/asn1/a_int.cc
+index e6417055..99a5ea79 100644
+--- a/src/crypto/asn1/a_int.cc
++++ b/src/crypto/asn1/a_int.cc
+@@ -345,6 +345,17 @@ int ASN1_INTEGER_get_int64(int64_t *out, const ASN1_INTEGER *a) {
+   return asn1_string_get_int64(out, a, V_ASN1_INTEGER);
+ }
+ 
++int ASN1_INTEGER_get_uint32(uint32_t *out, const ASN1_INTEGER *a) {
++  uint64_t v;
++  if (out == NULL || a == NULL ||
++      !asn1_string_get_uint64(&v, a, V_ASN1_INTEGER) ||
++      v > UINT32_MAX) {
++    return 0;
++  }
++  *out = static_cast<uint32_t>(v);
++  return 1;
++}
++
+ int ASN1_ENUMERATED_get_int64(int64_t *out, const ASN1_ENUMERATED *a) {
+   return asn1_string_get_int64(out, a, V_ASN1_ENUMERATED);
+ }
+diff --git a/src/crypto/bytestring/cbs.cc b/src/crypto/bytestring/cbs.cc
+index fd11c5a8..59c43be4 100644
+--- a/src/crypto/bytestring/cbs.cc
++++ b/src/crypto/bytestring/cbs.cc
+@@ -26,6 +26,15 @@
+ #include "internal.h"
+ 
+ 
++// [bring-up] Out-of-line definition of CBS_init, see bytestring.h. AOSP 16
++// ships this as OPENSSL_INLINE, so libcrypto.so never exported the symbol and
++// Samsung's pre-Android-12 libwvhidl.so (widevine HAL) failed to load with
++// "cannot locate symbol CBS_init".
++void CBS_init(CBS *cbs, const uint8_t *data, size_t len) {
++  cbs->data = data;
++  cbs->len = len;
++}
++
+ static int cbs_get(CBS *cbs, const uint8_t **p, size_t n) {
+   if (cbs->len < n) {
+     return 0;
+diff --git a/src/crypto/stack/stack.cc b/src/crypto/stack/stack.cc
+index bbe5eb74..36bb9631 100644
+--- a/src/crypto/stack/stack.cc
++++ b/src/crypto/stack/stack.cc
+@@ -130,6 +130,10 @@ void sk_pop_free(OPENSSL_STACK *sk, OPENSSL_sk_free_func free_func) {
+   OPENSSL_sk_pop_free_ex(sk, call_free_func_legacy, free_func);
+ }
+ 
++void *sk_delete(OPENSSL_STACK *sk, size_t where) {
++  return OPENSSL_sk_delete(sk, where);
++}
++
+ size_t OPENSSL_sk_insert(OPENSSL_STACK *sk, void *p, size_t where) {
+   if (sk == NULL) {
+     return 0;
+diff --git a/src/include/openssl/asn1.h b/src/include/openssl/asn1.h
+index f439acbf..ed1a347e 100644
+--- a/src/include/openssl/asn1.h
++++ b/src/include/openssl/asn1.h
+@@ -1029,6 +1029,12 @@ OPENSSL_EXPORT int ASN1_INTEGER_get_uint64(uint64_t *out,
+ // it returns zero.
+ OPENSSL_EXPORT int ASN1_INTEGER_get_int64(int64_t *out, const ASN1_INTEGER *a);
+ 
++// ASN1_INTEGER_get_uint32 is the legacy Android 12-era 32-bit getter, still
++// referenced by Samsung keymaster blobs. Returns one and sets |*out| on
++// success, zero if the value is negative or exceeds 32 bits.
++OPENSSL_EXPORT int ASN1_INTEGER_get_uint32(uint32_t *out,
++                                           const ASN1_INTEGER *a);
++
+ // BN_to_ASN1_INTEGER sets |ai| to an INTEGER with value |bn| and returns |ai|
+ // on success or NULL or error. If |ai| is NULL, it returns a newly-allocated
+ // |ASN1_INTEGER| on success instead, which the caller must release with
+diff --git a/src/include/openssl/bytestring.h b/src/include/openssl/bytestring.h
+index d5df0b2f..5f536937 100644
+--- a/src/include/openssl/bytestring.h
++++ b/src/include/openssl/bytestring.h
+@@ -56,10 +56,19 @@ struct cbs_st {
+ 
+ // CBS_init sets |cbs| to point to |data|. It does not take ownership of
+ // |data|.
+-OPENSSL_INLINE void CBS_init(CBS *cbs, const uint8_t *data, size_t len) {
+-  cbs->data = data;
+-  cbs->len = len;
+-}
++//
++// [bring-up] Exported out-of-line instead of OPENSSL_INLINE. Pre-Android-12
++// vendor blobs were built against OpenSSL/early BoringSSL where CBS_init was a
++// real exported symbol; Samsung's libwvhidl.so binds it directly and the
++// widevine HAL dies at load time without it:
++//
++//   CANNOT LINK EXECUTABLE ".../android.hardware.drm@1.3-service.widevine":
++//   cannot locate symbol "CBS_init" referenced by "/vendor/lib/libwvhidl.so"
++//
++// Every other CBS_* symbol libwvhidl needs is already exported by
++// libcrypto.so; this was the only gap. Keeping the body out of line costs one
++// call per parse and lets old vendor code link again.
++OPENSSL_EXPORT void CBS_init(CBS *cbs, const uint8_t *data, size_t len);
+ 
+ // CBS_skip advances |cbs| by |len| bytes. It returns one on success and zero
+ // otherwise.
+diff --git a/src/include/openssl/stack.h b/src/include/openssl/stack.h
+index f422403c..37120350 100644
+--- a/src/include/openssl/stack.h
++++ b/src/include/openssl/stack.h
+@@ -306,6 +306,12 @@ OPENSSL_EXPORT OPENSSL_DEPRECATED void sk_free(OPENSSL_STACK *sk);
+ OPENSSL_EXPORT OPENSSL_DEPRECATED size_t sk_push(OPENSSL_STACK *sk, void *p);
+ OPENSSL_EXPORT OPENSSL_DEPRECATED void *sk_pop(OPENSSL_STACK *sk);
+ 
++// sk_delete is the legacy alias for |OPENSSL_sk_delete|. It was removed from
++// upstream BoringSSL but kept by some Android 12-era vendor blobs (Samsung
++// keymaster). Re-added for binary compatibility; returns the removed element.
++OPENSSL_EXPORT OPENSSL_DEPRECATED void *sk_delete(OPENSSL_STACK *sk,
++                                                  size_t where);
++
+ // sk_pop_free_ex calls |OPENSSL_sk_pop_free_ex|.
+ //
+ // TODO(b/291994116): Remove this.

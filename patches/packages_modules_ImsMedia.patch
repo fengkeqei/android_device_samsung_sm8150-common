@@ -1,0 +1,299 @@
+diff --git a/service/Android.bp b/service/Android.bp
+index 416cae3..6b45943 100644
+--- a/service/Android.bp
++++ b/service/Android.bp
+@@ -51,6 +51,7 @@ android_app {
+     ],
+     required: [
+         "libimsmedia",
++        "privapp-permissions_com.android.telephony.imsmedia",
+     ],
+     dex_preopt: {
+         enabled: false,
+@@ -63,3 +64,11 @@ android_app {
+     certificate: "platform",
+     platform_apis: true,
+ }
++
++prebuilt_etc {
++    name: "privapp-permissions_com.android.telephony.imsmedia",
++    src: "sysconfig/privapp-permissions-com.android.telephony.imsmedia.xml",
++    sub_dir: "permissions",
++    filename_from_src: true,
++    system_ext_specific: true,
++}
+diff --git a/service/AndroidManifest.xml b/service/AndroidManifest.xml
+index 05f0406..f9cb0ff 100644
+--- a/service/AndroidManifest.xml
++++ b/service/AndroidManifest.xml
+@@ -25,6 +25,12 @@
+       android:label="Permission to bind to ImsMedia"/>
+ 
+   <uses-permission android:name="android.permission.RECORD_AUDIO"/>
++  <!-- beyond1q: AudioPolicyManager's "client can capture calls" gate silences
++       capture clients that lack this privilege while a call is in progress.
++       Without it the VoLTE uplink read all zeros (downlink worked): A15 hit
++       the same thing and fixed it with this permission plus the privapp
++       allowlist in sysconfig/ (Round 71, WORKLOG 71y/71z). -->
++  <uses-permission android:name="android.permission.CAPTURE_AUDIO_OUTPUT"/>
+   <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
+   <uses-permission android:name="android.permission.INTERNET"/>
+   <uses-permission android:name="android.permission.CAMERA" />
+diff --git a/service/src/com/android/telephony/imsmedia/JNIImsMediaService.java b/service/src/com/android/telephony/imsmedia/JNIImsMediaService.java
+index ee6eb9d..e557de9 100644
+--- a/service/src/com/android/telephony/imsmedia/JNIImsMediaService.java
++++ b/service/src/com/android/telephony/imsmedia/JNIImsMediaService.java
+@@ -103,6 +103,23 @@ public class JNIImsMediaService {
+      */
+     public static native void setLogMode(int logMode, int debugLogMode);
+ 
++    /**
++     * Set the libimsmedia test mode.
++     *
++     * beyond1q: the native side (libimsmediajni.cpp gMethods) registers
++     * {"setTestMode", "(I)V"} but this Java class never declared it, so
++     * RegisterNatives failed the lookup and ImsMediaService aborted at every
++     * start with
++     *   NoSuchMethodError: no static or non-static method
++     *   "Lcom/android/telephony/imsmedia/JNIImsMediaService;.setTestMode(I)V"
++     * leaving the media service crash-looping. ImsStack then hit
++     *   "Audio openSession response timeout" / openSessionResponse Result=2
++     * and tore down every outgoing VoLTE call with 487 Request Terminated.
++     * The native implementation only logs the value ("TODO Implement test
++     * mode"), so declaring it here is sufficient.
++     */
++    public static native void setTestMode(int testMode);
++
+     /**
+      * Gets intance of JNIImsMediaService for jni interface
+      *
+diff --git a/service/src/com/android/telephony/imsmedia/lib/libimsmedia/Android.bp b/service/src/com/android/telephony/imsmedia/lib/libimsmedia/Android.bp
+index 80eed2f..f613b74 100644
+--- a/service/src/com/android/telephony/imsmedia/lib/libimsmedia/Android.bp
++++ b/service/src/com/android/telephony/imsmedia/lib/libimsmedia/Android.bp
+@@ -46,6 +46,14 @@ cc_library_shared {
+         "libimsmedia_config",
+         "libimsmedia_core",
+         "libimsmedia_protocol",
++        // beyond1q: the AEC/NS implementation (ImsMediaAec) calls into WebRTC
++        // AudioProcessing. Static-library dependencies of libimsmedia_audio are
++        // not propagated to this shared-library link, so the symbols must be
++        // pulled in here as well (otherwise AudioProcessingBuilder::Create is
++        // left undefined).
++        "absl_strings_string_view",
++        "absl_types_optional",
++        "webrtc_audio_processing",
+     ],
+     shared_libs: [
+         "framework-permission-aidl-cpp",
+diff --git a/service/src/com/android/telephony/imsmedia/lib/libimsmedia/core/audio/android/Android.bp b/service/src/com/android/telephony/imsmedia/lib/libimsmedia/core/audio/android/Android.bp
+index 252ca0e..7353e0b 100644
+--- a/service/src/com/android/telephony/imsmedia/lib/libimsmedia/core/audio/android/Android.bp
++++ b/service/src/com/android/telephony/imsmedia/lib/libimsmedia/core/audio/android/Android.bp
+@@ -41,6 +41,11 @@ cc_library_static {
+     local_include_dirs: [
+         "include",
+     ],
++    static_libs: [
++        "absl_strings_string_view",
++        "absl_types_optional",
++        "webrtc_audio_processing",
++    ],
+     shared_libs: [
+         "libaaudio",
+         "libmediandk",
+diff --git a/service/src/com/android/telephony/imsmedia/lib/libimsmedia/core/audio/android/ImsMediaAudioPlayer.cpp b/service/src/com/android/telephony/imsmedia/lib/libimsmedia/core/audio/android/ImsMediaAudioPlayer.cpp
+index a9539d5..0b0db0e 100644
+--- a/service/src/com/android/telephony/imsmedia/lib/libimsmedia/core/audio/android/ImsMediaAudioPlayer.cpp
++++ b/service/src/com/android/telephony/imsmedia/lib/libimsmedia/core/audio/android/ImsMediaAudioPlayer.cpp
+@@ -28,6 +28,7 @@
+ #include <ImsMediaTimer.h>
+ #include <ImsMediaAudioUtil.h>
+ #include <ImsMediaAudioPlayer.h>
++#include <ImsMediaAec.h>
+ #include <utils/Errors.h>
+ 
+ #define AAUDIO_STATE_TIMEOUT_NANO (100 * 1000000L)
+@@ -276,6 +277,25 @@ void ImsMediaAudioPlayer::Stop()
+     IMLOGD0("[Stop] exit ");
+ }
+ 
++void ImsMediaAudioPlayer::feedAec(const void* data, int32_t numFrames)
++{
++    if (mAudioStream == nullptr || data == nullptr || numFrames <= 0 || mSamplingRate <= 0)
++    {
++        return;
++    }
++    // The far-end reference must be fed before the samples reach the sink. The
++    // delay hint is how much audio is still buffered ahead in AAudio/HAL.
++    int32_t delayMs = 0;
++    const int64_t bufferedFrames = AAudioStream_getFramesWritten(mAudioStream) -
++            AAudioStream_getFramesRead(mAudioStream);
++    if (bufferedFrames > 0)
++    {
++        delayMs = static_cast<int32_t>(bufferedFrames * 1000 / mSamplingRate);
++    }
++    ImsMediaAec::GetInstance()->FeedFarEnd(
++            reinterpret_cast<const int16_t*>(data), numFrames, mSamplingRate, delayMs);
++}
++
+ bool ImsMediaAudioPlayer::onDataFrame(uint8_t* buffer, uint32_t size, FrameType /*frameType*/,
+         bool /*hasNextFrame*/, uint8_t /*nextFrameByte*/)
+ {
+@@ -307,6 +327,7 @@ bool ImsMediaAudioPlayer::onDataFrame(uint8_t* buffer, uint32_t size, FrameType
+     {
+         memcpy(mBuffer, buffer, (MAX_PCM_SIZE * 2));
+         // call audio write
++        feedAec(mBuffer, MAX_PCM_SIZE);
+         AAudioStream_write(mAudioStream, mBuffer, MAX_PCM_SIZE, 0);
+     }
+     return false;
+@@ -356,6 +377,7 @@ bool ImsMediaAudioPlayer::decodeAmr(uint8_t* buffer, uint32_t size)
+             {
+                 memcpy(mBuffer, buf, info.size);
+                 // call audio write
++                feedAec(mBuffer, info.size / 2);
+                 AAudioStream_write(mAudioStream, mBuffer, info.size / 2, 0);
+             }
+         }
+@@ -410,6 +432,7 @@ bool ImsMediaAudioPlayer::decodeEvs(uint8_t* buffer, uint32_t size)
+         mIsFirstFrame = true;
+     }
+ 
++    feedAec(output, (decodeSize / 2));
+     AAudioStream_write(mAudioStream, output, (decodeSize / 2), 0);
+     memset(output, 0, PCM_BUFFER_SIZE);
+ 
+diff --git a/service/src/com/android/telephony/imsmedia/lib/libimsmedia/core/audio/android/ImsMediaAudioSource.cpp b/service/src/com/android/telephony/imsmedia/lib/libimsmedia/core/audio/android/ImsMediaAudioSource.cpp
+index ca8fb44..d19e6dc 100644
+--- a/service/src/com/android/telephony/imsmedia/lib/libimsmedia/core/audio/android/ImsMediaAudioSource.cpp
++++ b/service/src/com/android/telephony/imsmedia/lib/libimsmedia/core/audio/android/ImsMediaAudioSource.cpp
+@@ -15,6 +15,7 @@
+  */
+ 
+ #include <stdio.h>
++#include <math.h>
+ #include <sys/time.h>
+ #include <sys/types.h>
+ #include <sys/stat.h>
+@@ -24,7 +25,9 @@
+ #include <ImsMediaTrace.h>
+ #include <ImsMediaAudioUtil.h>
+ #include <ImsMediaAudioSource.h>
++#include <ImsMediaAec.h>
+ #include <utils/Errors.h>
++#include <algorithm>
+ #include <thread>
+ 
+ #define AAUDIO_STATE_TIMEOUT_NANO (100 * 1000000L)
+@@ -273,11 +276,71 @@ void* ImsMediaAudioSource::run()
+         if (mAudioStream != nullptr &&
+                 AAudioStream_getState(mAudioStream) == AAUDIO_STREAM_STATE_STARTED)
+         {
+-            aaudio_result_t readSize = AAudioStream_read(mAudioStream, buffer, mBufferSize, 0);
++            // beyond1q: PCM_BUFFER_SIZE (640) int16 samples is the size of the
++            // stack buffer below, but AAudioStream_getFramesPerBurst() is
++            // whatever the audio HAL advertises and can be larger (1024 on
++            // this port). AAudioStream_read() takes FRAMES and writes
++            // frames * 2 bytes, so asking for the raw burst overflowed the
++            // stack -> __stack_chk_fail:
++            //   ImsMediaAudioSource::run()+908
++            //   Abort message: 'stack corruption detected (-fstack-protector)'
++            // which killed com.android.telephony.imsmedia as soon as call
++            // audio started (VoLTE media died -> silence in both directions).
++            // beyond1q: read exactly one packetisation interval (mPtime, 20 ms)
++            // of audio per loop iteration. The loop then sleeps mPtime, so the
++            // reader stays in lock-step with real time. Reading the HAL's burst
++            // size instead (1360 frames -> clamped 640 = 40 ms) made every
++            // iteration consume twice as much audio as it slept for: the AAudio
++            // record ring overflowed and dropped 20 ms every cycle, which the
++            // far end hears as a periodic click ("tsk, tsk, tsk").
++            int32_t framesToRead = static_cast<int32_t>(mSamplingRate * mPtime / 1000);
++            if (framesToRead <= 0) {
++                framesToRead = 320;  // 16 kHz * 20 ms
++            }
++            if (framesToRead > PCM_BUFFER_SIZE) {
++                framesToRead = PCM_BUFFER_SIZE;
++            }
++            if (mBufferSize > 0 && framesToRead > static_cast<int32_t>(mBufferSize)) {
++                framesToRead = static_cast<int32_t>(mBufferSize);
++            }
++            aaudio_result_t readSize =
++                    AAudioStream_read(mAudioStream, buffer, framesToRead, 0);
+ 
+             if (readSize > 0)
+             {
++                // beyond1q: run the in-process echo canceller (WebRTC AEC3 + NS)
++                // on the captured uplink before encoding. The far-end reference
++                // is fed from ImsMediaAudioPlayer right before rendering.
++                ImsMediaAec::GetInstance()->ProcessNear(buffer, (int32_t)readSize, mSamplingRate);
+                 IMLOGD_PACKET1(IM_PACKET_LOG_AUDIO, "[run] nReadSize[%d]", readSize);
++                // beyond1q debug: log the level of the first 300 captured bursts so
++                // we can tell whether the encoder receives real voice, silence or
++                // garbage. Sampling rate/codec are logged at open.
++                {
++                    static int dbgCount = 0;
++                    if (dbgCount < 5000)
++                    {
++                        int64_t sum = 0;
++                        int32_t vmin = 32767, vmax = -32768;
++                        int32_t zeros = 0, zrun = 0, maxzrun = 0;
++                        for (int32_t i = 0; i < readSize; i++)
++                        {
++                            int32_t v = buffer[i];
++                            sum += (int64_t)v * v;
++                            if (v < vmin) vmin = v;
++                            if (v > vmax) vmax = v;
++                            if (v == 0) { zeros++; zrun++;
++                                if (zrun > maxzrun) maxzrun = zrun; }
++                            else zrun = 0;
++                        }
++                        if (readSize <= 0) { vmin = 0; vmax = 0; }
++                        int32_t n = readSize > 0 ? readSize : 1;
++                        int32_t rms = static_cast<int32_t>(sqrt(static_cast<double>(sum) / n));
++                        IMLOGI6("[run] frames[%d] rms[%d] min[%d] max[%d] zeros[%d] maxzrun[%d]",
++                                readSize, rms, vmin, vmax, zeros, maxzrun);
++                        dbgCount++;
++                    }
++                }
+                 if (mCodecType == kAudioCodecAmr || mCodecType == kAudioCodecAmrWb)
+                 {
+                     queueInputBuffer(buffer, readSize * sizeof(uint16_t));
+@@ -312,8 +375,11 @@ void* ImsMediaAudioSource::run()
+ 
+                     if (mCallback != nullptr)
+                     {
+-                        mCallback->onDataFrame(
+-                                (uint8_t*)buffer, (mBufferSize * 2), ptsUsec, evsFlags);
++                        // Use the frames actually read (readSize) rather
++                        // than the burst size: they differ once the read is
++                        // clamped to PCM_BUFFER_SIZE.
++                        mCallback->onDataFrame((uint8_t*)buffer,
++                                readSize * sizeof(uint16_t), ptsUsec, evsFlags);
+                     }
+                     size = 0;
+                 }
+@@ -370,6 +436,10 @@ void ImsMediaAudioSource::openAudioStream()
+                 "performanceMode[%d]",
+                 AAudioStream_getSampleRate(mAudioStream), mBufferSize,
+                 AAudioStream_getPerformanceMode(mAudioStream));
++        // beyond1q debug: always-visible summary of the capture format.
++        IMLOGI4("[openAudioStream] rate[%d] burst[%d] ch[%d] mSamplingRate[%d]",
++                AAudioStream_getSampleRate(mAudioStream), mBufferSize,
++                AAudioStream_getChannelCount(mAudioStream), mSamplingRate);
+         // Set the buffer size to the burst size - this will give us the minimum
+         // possible latency
+         AAudioStream_setBufferSizeInFrames(mAudioStream, mBufferSize);
+diff --git a/service/src/com/android/telephony/imsmedia/lib/libimsmedia/core/audio/android/include/ImsMediaAudioPlayer.h b/service/src/com/android/telephony/imsmedia/lib/libimsmedia/core/audio/android/include/ImsMediaAudioPlayer.h
+index cfdf2d3..5123bac 100644
+--- a/service/src/com/android/telephony/imsmedia/lib/libimsmedia/core/audio/android/include/ImsMediaAudioPlayer.h
++++ b/service/src/com/android/telephony/imsmedia/lib/libimsmedia/core/audio/android/include/ImsMediaAudioPlayer.h
+@@ -152,6 +152,8 @@ public:
+             uint8_t nextFrameByte);
+ 
+ private:
++    // beyond1q: feed the downlink to the in-process AEC as the far-end reference.
++    void feedAec(const void* data, int32_t numFrames);
+     void openAudioStream();
+     void restartAudioStream();
+     static void audioErrorCallback(AAudioStream* stream, void* userData, aaudio_result_t error);

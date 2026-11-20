@@ -71,3 +71,95 @@ cc_prebuilt_library_shared {
 // (on fs) and "network_config" (on post-fs-data) exec services. Both failed
 // with "Cannot find '/vendor/bin/secril_config_svc'" because the file was
 // never packaged.
+
+// v124: minimal soundtrigger@2.0 service.
+// AOSP ships the impl but no service binary, and Samsung's stock image has
+// neither, so android.hardware.soundtrigger@2.0::ISoundTriggerHw/default was
+// never registered. SystemServer's DefaultHalFactory calls
+// ISoundTriggerHw.getService(true) which retries forever, so
+// StartSoundTriggerMiddlewareService never returns and boot_completed is
+// never set. The FakeHalFactory fallback passed alongside it is unreachable
+// because getService never throws.
+cc_binary {
+    name: "android.hardware.soundtrigger@2.0-service.sm8150",
+    stem: "android.hardware.soundtrigger@2.0-service",
+    owner: "samsung",
+    vendor: true,
+    relative_install_path: "hw",
+    srcs: ["soundtrigger_service.cpp"],
+    shared_libs: [
+        "android.hardware.soundtrigger@2.0",
+        "libhidlbase",
+        "liblog",
+        "libutils",
+    ],
+    compile_multilib: "64",
+    // avium: rc is installed by vendor_native_prebuilts.mk instead. This
+    // module's init_rc install step was not part of the vendorimage dependency
+    // graph, so the staging file went stale and was dropped from the image
+    // file list (soundtrigger_service.rc missing from vendor.img).
+    // init_rc: ["soundtrigger_service.rc"],
+    cflags: [
+        "-Wall",
+        "-Werror",
+    ],
+}
+
+// v124: libprocessgroup ABI shim for Samsung's composer@2.4 service.
+// The stock binary references CgroupGetAttributePath, which A16's
+// libprocessgroup no longer exports, so it cannot even be dlopen'ed.
+cc_library_shared {
+    name: "libcgroup_shim",
+    owner: "samsung",
+    vendor: true,
+    srcs: ["vendor_libs/cgroup_shim.cpp"],
+    cflags: [
+        "-Wall",
+        "-Werror",
+    ],
+    compile_multilib: "64",
+    strip: {
+        none: true,
+    },
+}
+
+// v125: AOSP software keymaster@4.0, installed under a distinct stem.
+//
+// The upstream module in hardware/interfaces/keymaster/4.0/default installs
+// to /vendor/bin/hw/android.hardware.keymaster@4.0-service, which collides
+// with the Samsung TEE blob packaged by the generated vendor.mk. The blob
+// wins, crash-loops with a SIGSEGV inside libcrypto ASN1_item_ex_new, and
+// deadlocks keystore2: km_compat.cpp's getDevice() holds a static mutex
+// across initializeKeymasters() -> IKeymasterDevice::getService(), which
+// retries forever because the blob never registers. SystemServer then dies
+// with "Could not connect to Keystore service" in
+// LockSettingsService.migrateUserToSpWithBoundKeysLocked.
+//
+// This is the same source as upstream (CreateKeymasterDevice(SOFTWARE)), only
+// with a different stem so both binaries can coexist. The Samsung rc already
+// declares the vendor.keymaster-4-0 service for this instance, so no second
+// rc is needed; romfix.rc repoints the service's binary path.
+cc_binary {
+    name: "android.hardware.keymaster@4.0-service_aosp",
+    stem: "android.hardware.keymaster@4.0-service_aosp",
+    owner: "samsung",
+    vendor: true,
+    relative_install_path: "hw",
+    srcs: ["vendor_libs/keymaster/keymaster_aosp_service.cpp"],
+    shared_libs: [
+        "android.hardware.keymaster@4.0",
+        "libbase",
+        "libcutils",
+        "libhardware",
+        "libhidlbase",
+        "libkeymaster4",
+        "liblog",
+        "libutils",
+    ],
+    cflags: [
+        "-Wall",
+        "-Werror",
+    ],
+    compile_multilib: "64",
+}
+

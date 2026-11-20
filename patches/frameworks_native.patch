@@ -1,0 +1,198 @@
+diff --git a/cmds/servicemanager/vndservicemanager.rc b/cmds/servicemanager/vndservicemanager.rc
+index 80af1d1377..07fe960ffe 100644
+--- a/cmds/servicemanager/vndservicemanager.rc
++++ b/cmds/servicemanager/vndservicemanager.rc
+@@ -3,7 +3,6 @@ service vndservicemanager /vendor/bin/vndservicemanager /dev/vndbinder
+     user system
+     group system readproc
+     file /dev/kmsg w
+-    task_profiles ServiceCapacityLow
+     onrestart class_restart main
+     onrestart class_restart hal
+     onrestart class_restart early_hal
+diff --git a/libs/binder/Android.bp b/libs/binder/Android.bp
+index ab97db7179..b6e5e904a4 100644
+--- a/libs/binder/Android.bp
++++ b/libs/binder/Android.bp
+@@ -623,8 +623,29 @@ cc_defaults {
+     ],
+     target: {
+         vendor: {
++            // [bring-up] libbinder_device_interface_sources is system-only, but
++            // PermissionCache has to exist in the vendor build of libbinder:
++            // libgui is vendor_available and A16 ships one binary for both
++            // sides, BufferQueueConsumer.cpp:957 and
++            // LayerStatePermissions.cpp:43 call
++            // PermissionCache::checkPermission() unconditionally, and the
++            // vendor libgui copy therefore carries
++            //   U _ZN7android15PermissionCache15checkPermissionERKNS_8String16Eij@LIBBINDER
++            // Loading it fails with
++            //   cannot locate symbol
++            //   "_ZN7android15PermissionCache15checkPermissionERKNS_8String16Eij"
++            //   referenced by "/vendor/lib64/libgui.so"
++            // (hit by samsung.software.media.c2@1.0-service).
++            // PermissionCache.cpp is added back; IPermissionController.cpp and
++            // PermissionController.cpp stay system-only. The android::
++            // checkPermission() it calls gets a vendor fallback in
++            // IServiceManager.cpp.
++            srcs: [
++                "PermissionCache.cpp",
++            ],
+             exclude_srcs: [
+-                ":libbinder_device_interface_sources",
++                "IPermissionController.cpp",
++                "PermissionController.cpp",
+             ],
+         },
+         host: {
+diff --git a/libs/binder/IServiceManager.cpp b/libs/binder/IServiceManager.cpp
+index 0a564aa0fb..f74d65d434 100644
+--- a/libs/binder/IServiceManager.cpp
++++ b/libs/binder/IServiceManager.cpp
+@@ -551,6 +551,43 @@ bool checkPermission(const String16& permission, pid_t pid, uid_t uid, bool logP
+     }
+ }
+ 
++// [bring-up] Vendor-side fallback for android::checkPermission().
++//
++// The real implementation above is system-only because it talks to
++// IPermissionController, which vendors cannot reach. That is fine for the
++// system build, but it leaves the vendor build of libbinder without the
++// symbol while libgui still needs it:
++//   - libgui is vendor_available and A16 builds a single libgui for both
++//     sides; /vendor/lib64/libgui.so is a byte-identical copy of the system
++//     one (same md5).
++//   - BufferQueueConsumer.cpp:957 and LayerStatePermissions.cpp:43 call
++//     PermissionCache::checkPermission() unconditionally.
++//   - so the vendor copy carries
++//       U _ZN7android15PermissionCache15checkPermissionERKNS_8String16Eij@LIBBINDER
++//     and loading it fails with
++//       cannot locate symbol
++//       "_ZN7android15PermissionCache15checkPermissionERKNS_8String16Eij"
++//       referenced by "/vendor/lib64/libgui.so"
++//     (hit by samsung.software.media.c2@1.0-service).
++//
++// A vendor process has no way to ask the permission controller anything, so the
++// only faithful behaviour is to grant for root and for ourselves (matching the
++// shortcut the system version takes) and deny everything else. Vendor code
++// calling into libgui's dump path is already inside the vendor boundary; this
++// is not a privilege escalation, it just lets the library load and link.
++#else // __ANDROID_VNDK__
++
++bool checkPermission(const String16& permission, pid_t pid, uid_t uid,
++                     bool /*logPermissionFailure*/) {
++    if ((uid == 0) || (pid == getpid())) {
++        return true;
++    }
++    ALOGW("checkPermission(%s) from uid=%d pid=%d denied: permission controller "
++          "unavailable in the vendor namespace",
++          String8(permission).c_str(), uid, pid);
++    return false;
++}
++
+ #endif //__ANDROID_VNDK__
+ 
+ void* openDeclaredPassthroughHal(const String16& interface, const String16& instance, int flag) {
+diff --git a/libs/binder/include/binder/PermissionCache.h b/libs/binder/include/binder/PermissionCache.h
+index 9c08016af8..53fa0a847f 100644
+--- a/libs/binder/include/binder/PermissionCache.h
++++ b/libs/binder/include/binder/PermissionCache.h
+@@ -16,7 +16,10 @@
+ 
+ #pragma once
+ 
+-#ifndef __ANDROID_VNDK__
++// [bring-up] The "#ifndef __ANDROID_VNDK__" guard that used to wrap this header
++// has been removed so the vendor build of libbinder can compile
++// PermissionCache.cpp; see frameworks/native/libs/binder/Android.bp and the
++// comment above the vendor fallback in IServiceManager.cpp.
+ 
+ #include <stdint.h>
+ #include <unistd.h>
+@@ -80,7 +83,3 @@ public:
+ 
+ // ---------------------------------------------------------------------------
+ } // namespace android
+-
+-#else // __ANDROID_VNDK__
+-#error "This header is not visible to vendors"
+-#endif // __ANDROID_VNDK__
+diff --git a/libs/ui/GraphicBufferMapper.cpp b/libs/ui/GraphicBufferMapper.cpp
+index 7b5a27d9e1..3bc6a36a47 100644
+--- a/libs/ui/GraphicBufferMapper.cpp
++++ b/libs/ui/GraphicBufferMapper.cpp
+@@ -179,6 +179,11 @@ status_t GraphicBufferMapper::unlock(buffer_handle_t handle, base::unique_fd* ou
+     return OK;
+ }
+ 
++// [bring-up] Android 11 compatibility overload, see the header for rationale.
++status_t GraphicBufferMapper::unlock(buffer_handle_t handle) {
++    return unlock(handle, nullptr);
++}
++
+ status_t GraphicBufferMapper::lock(buffer_handle_t handle, uint32_t usage, const Rect& bounds,
+                                    void** vaddr) {
+     auto result = lock(handle, static_cast<int64_t>(usage), bounds);
+@@ -188,6 +193,14 @@ status_t GraphicBufferMapper::lock(buffer_handle_t handle, uint32_t usage, const
+     return OK;
+ }
+ 
++// [bring-up] Android 11 compatibility overload, see the header for rationale.
++status_t GraphicBufferMapper::lock(buffer_handle_t handle, uint32_t usage, const Rect& bounds,
++                                   void** vaddr, int* outStride, int* outUsage) {
++    if (outStride) *outStride = 0;
++    if (outUsage) *outUsage = static_cast<int>(usage);
++    return lock(handle, usage, bounds, vaddr);
++}
++
+ status_t GraphicBufferMapper::lockYCbCr(buffer_handle_t handle, uint32_t usage, const Rect& bounds,
+                                         android_ycbcr* ycbcr) {
+     auto result = lockYCbCr(handle, static_cast<int64_t>(usage), bounds);
+diff --git a/libs/ui/include/ui/GraphicBufferMapper.h b/libs/ui/include/ui/GraphicBufferMapper.h
+index 91aabe9f12..f0285c0da7 100644
+--- a/libs/ui/include/ui/GraphicBufferMapper.h
++++ b/libs/ui/include/ui/GraphicBufferMapper.h
+@@ -96,6 +96,23 @@ public:
+ 
+     status_t lock(buffer_handle_t handle, uint32_t usage, const Rect& bounds, void** vaddr);
+ 
++    // [bring-up] Android 11 signature kept for vendor blobs.
++    //
++    // Pre-Android-12 code (here: Samsung's unihal_main@1.1.so, reached from
++    // vendor.samsung.hardware.camera.provider@4.0-legacy.so) binds
++    //   GraphicBufferMapper::lock(native_handle const*, uint32_t,
++    //                             Rect const&, void**, int*, int*)
++    // where the trailing int* are out-params for the locked stride and the
++    // usage actually applied. Android 16 reduced lock() to the 4-argument
++    // form above, so the old mangled name disappeared and the blob fails with
++    //   cannot locate symbol _ZN7android19GraphicBufferMapper4lockEPK13native_handlej
++    //   RKNS_4RectEPPvPiS9_
++    // The stride is not needed by this path (gralloc4+ reports it through
++    // getPlaneLayout), and the out usage is informational, so forwarding to
++    // the 4-argument form with zeroed out-params preserves behaviour.
++    status_t lock(buffer_handle_t handle, uint32_t usage, const Rect& bounds, void** vaddr,
++                  int* outStride, int* outUsage);
++
+     status_t lockYCbCr(buffer_handle_t handle,
+             uint32_t usage, const Rect& bounds, android_ycbcr *ycbcr);
+ 
+@@ -109,7 +126,18 @@ public:
+             uint32_t usage, const Rect& bounds, android_ycbcr *ycbcr,
+             int fenceFd);
+ 
+-    status_t unlock(buffer_handle_t handle, base::unique_fd* outFence = nullptr);
++    // [bring-up] The default argument was removed so that the single-argument
++    // overload below can exist without making calls ambiguous. Callers that
++    // relied on the default must pass nullptr explicitly.
++    status_t unlock(buffer_handle_t handle, base::unique_fd* outFence);
++
++    // [bring-up] Android 11 single-argument unlock(), kept for vendor blobs.
++    //
++    // A default argument does not change the mangled name, so blobs built
++    // against Android 11 bind GraphicBufferMapper::unlock(native_handle const*)
++    // and fail to resolve. Forwarding with a null fence preserves the old
++    // synchronous-unlock semantics.
++    status_t unlock(buffer_handle_t handle);
+     status_t unlockAsync(buffer_handle_t handle, int* fenceFd) {
+         base::unique_fd temp;
+         status_t result = unlock(handle, fenceFd ? &temp : nullptr);

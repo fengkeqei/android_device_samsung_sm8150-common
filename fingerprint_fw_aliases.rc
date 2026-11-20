@@ -1,0 +1,8 @@
+# The Samsung MDFPP key chain (libbauthtzcommon.so -> BAuth_GetK_From_KM)
+# falls back to the QTI keymaster path and looks for the TA under the name
+# "keymaster64"; the APNHLOS firmware partition only ships "skeymast".
+# QSEECom resolves the app by file name, so provide an alias.
+# /vendor/firmware_mnt is a real (persistent) partition, so this only runs
+# once per flash, but the check keeps it idempotent.
+on post-fs-data
+    exec - root system -- /system/bin/sh /vendor/bin/fp_fw_alias.sh

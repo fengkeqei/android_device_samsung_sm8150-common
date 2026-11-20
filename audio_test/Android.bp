@@ -1,0 +1,23 @@
+// [bring-up] 32-bit probe for the vendor legacy audio HAL blob.
+//
+// The blob (/vendor/lib/hw/audio.primary.msmnile.so) is ELF32 ARM, so this
+// must be built 32-bit only.  It is a debugging tool, not part of the product
+// image: build it explicitly with
+//     m audio_legacy_test
+// and push the result to the device.
+cc_binary {
+    name: "audio_legacy_test",
+    vendor: true,
+    compile_multilib: "32",
+    srcs: ["audio_legacy_test.c"],
+    shared_libs: [
+        "libcutils",
+        "libdl",
+        "libhardware",
+        "liblog",
+        "libm",
+    ],
+    cflags: [
+        "-Wno-unused-parameter",
+    ],
+}

@@ -1,0 +1,20 @@
+diff --git a/su/su.cpp b/su/su.cpp
+index 1a1ab6bf..a27952b4 100644
+--- a/su/su.cpp
++++ b/su/su.cpp
+@@ -81,7 +81,14 @@ void extract_uidgids(const char* uidgids, uid_t* uid, gid_t* gid, gid_t* gids, i
+ 
+ int main(int argc, char** argv) {
+     uid_t current_uid = getuid();
+-    if (current_uid != AID_ROOT && current_uid != AID_SHELL) error(1, 0, "not allowed");
++    // v122: stock AOSP only allows root and shell here. On this ROM su is the
++    // built-in root path for any process, so the uid gate is lifted.
++    // SELinux is untouched: system/sepolicy/private/su.te already has
++    // "permissive su" plus domain_auto_trans(shell, su_exec, su), and
++    // /system/xbin/su is labelled su_exec. A domain with no execute
++    // permission on su_exec still cannot reach this binary, so this widens
++    // the Unix uid check only.
++    (void)current_uid;
+ 
+     // Handle -h and --help.
+     ++argv;
